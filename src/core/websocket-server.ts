@@ -19,7 +19,7 @@ import { createServer as createHttpServer, IncomingMessage, ServerResponse } fro
 import type { Server as HttpServer } from 'http';
 import { readFileSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync, statSync, realpathSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { homedir, tmpdir } from 'os';
 import { execFile } from 'child_process';
 import { createChildLogger } from './logger.js';
 import { PACKAGE_ROOT } from './resolve-package-root.js';
@@ -577,7 +577,20 @@ export class FigmaWebSocketServer extends EventEmitter {
         return true;
       }
       if (req.method === 'POST' && path === '/transfer/native/paste') {
-        body().then(b => this.nativePaste(String(b.fileName || ''), String(b.srcFileKey || ''), Number(b.changeCount || 0))).then(r => njson(200, r)).catch(fail);
+        body().then(b => this.nativePaste(String(b.fileName || ''), String(b.srcFileKey || ''), Number(b.changeCount || 0), b.kind === 'h2d' ? 'h2d' : 'figma')).then(r => njson(200, r)).catch(fail);
+        return true;
+      }
+      // fiGapture: where is the plugin panel right now? (pointer position minus the click's
+      // position inside the panel; read at click time, before the user moves the mouse)
+      if (req.method === 'POST' && path === '/transfer/native/locate') {
+        body().then(b => this.nativeLocate(b)).then(r => njson(200, r)).catch(fail);
+        return true;
+      }
+      // fiGapture: put the captured page layers on the clipboard (as Figma's paste format)
+      if (req.method === 'POST' && path === '/transfer/native/set-clipboard') {
+        this.readBody(req, 300 * 1024 * 1024)
+          .then(buf => { let b: any = {}; try { b = JSON.parse(buf.toString('utf8') || '{}'); } catch {} return this.nativeSetClipboard(String(b.html || '')); })
+          .then(r => njson(200, r)).catch(fail);
         return true;
       }
     }
@@ -659,7 +672,7 @@ export class FigmaWebSocketServer extends EventEmitter {
    */
   private async nativeFocus(fileName: string, b: any): Promise<any> {
     if (process.platform !== 'darwin') return { ok: false, error: 'Automatic copy/paste only works on macOS.' };
-    if (!fileName || typeof b.clientX !== 'number') return { ok: false, error: 'Missing file name or click position.' };
+    if (!fileName || (typeof b.clientX !== 'number' && typeof b.panelX !== 'number')) return { ok: false, error: 'Missing file name or click position.' };
     const f = await this.nativeFront(fileName);
     if (f.needsAccess || f.error) return { ok: false, needsAccess: !!f.needsAccess, error: f.error };
     if (!f.frontmost || f.matches === false) return { ok: false, notFront: true, title: f.title, error: 'Click inside "' + fileName + '" first so it is the active file, then try again.' };
@@ -674,6 +687,8 @@ export class FigmaWebSocketServer extends EventEmitter {
       // coordinates proved unreliable inside Figma's plugin frame, so use the pointer.
       var px = a.x, py = a.y;
       var left = px - (cx || 0), top = py - (cy || 0);
+      var plx = ${n(b.panelX)}, ply = ${n(b.panelY)};
+      if (plx !== null && ply !== null) { left = plx; top = ply; }
       var tx = left - 60, ty = top + 40;
       post(5, tx, ty); delay(0.05);
       post(1, tx, ty); delay(0.05);
@@ -690,14 +705,44 @@ export class FigmaWebSocketServer extends EventEmitter {
     return { ok: true, ...info };
   }
 
+  /** Where is the plugin panel on screen? Pointer position now minus the click's position inside the panel. */
+  private async nativeLocate(b: any): Promise<any> {
+    if (process.platform !== 'darwin') return { ok: false, error: 'Automatic paste only works on macOS.' };
+    const n = (v: any) => (typeof v === 'number' && isFinite(v) ? v : 0);
+    const r = await this.run('osascript', ['-l', 'JavaScript', '-e',
+      'ObjC.import("CoreGraphics"); var p = $.CGEventGetLocation($.CGEventCreate(null)); JSON.stringify({ x: p.x, y: p.y })']);
+    let p: any = null; try { p = JSON.parse(r.out.trim()); } catch {}
+    if (!p) return { ok: false, error: 'Could not read the pointer position.' };
+    return { ok: true, panelX: p.x - n(b.clientX), panelY: p.y - n(b.clientY) };
+  }
+
+  /** Put HTML (Figma's paste format) on the macOS clipboard; returns the clipboard's change counter. */
+  private async nativeSetClipboard(html: string): Promise<any> {
+    if (process.platform !== 'darwin') return { ok: false, error: 'Automatic paste only works on macOS.' };
+    if (!html) return { ok: false, error: 'Nothing to put on the clipboard.' };
+    const file = join(tmpdir(), 'figshot-clip-' + process.pid + '-' + Date.now() + '.html');
+    writeFileSync(file, html, 'utf8');
+    try {
+      const r = await this.run('osascript', ['-l', 'JavaScript', '-e',
+        `ObjC.import("AppKit"); var s = $.NSString.stringWithContentsOfFileEncodingError(${JSON.stringify(file)}, 4, null);
+         var pb = $.NSPasteboard.generalPasteboard; pb.clearContents; var ok = pb.setStringForType(s, "public.html");
+         JSON.stringify({ ok: !!ok, changeCount: Number(pb.changeCount) })`], 60000);
+      let j: any = null; try { j = JSON.parse(r.out.trim()); } catch {}
+      if (!j || !j.ok) return { ok: false, error: 'Could not write the clipboard: ' + (r.err.trim() || 'unknown error') };
+      const now = await this.readClipboard();
+      if (!now.isH2d) return { ok: false, error: 'The clipboard did not keep the layers.' };
+      return { ok: true, changeCount: now.changeCount, bytes: now.bytes };
+    } finally { try { rmSync(file, { force: true }); } catch {} }
+  }
+
   /** Read the clipboard: change counter plus the Figma file key from Figma's clipboard metadata. */
-  private async readClipboard(): Promise<{ changeCount: number; isFigma: boolean; fileKey: string; bytes: number }> {
+  private async readClipboard(): Promise<{ changeCount: number; isFigma: boolean; isH2d?: boolean; fileKey: string; bytes: number }> {
     const r = await this.run('osascript', ['-l', 'JavaScript', '-e',
       `ObjC.import("AppKit"); var pb = $.NSPasteboard.generalPasteboard; var h = pb.stringForType("public.html"); h = h && !h.isNil() ? ObjC.unwrap(h) : "";
        var m = h.match(/\\(figmeta\\)([A-Za-z0-9+\\/=]+)\\(\\/figmeta\\)/); var key = "";
        if (m) { try { var d = $.NSData.alloc.initWithBase64EncodedStringOptions(m[1], 0); var s = ObjC.unwrap($.NSString.alloc.initWithDataEncoding(d, 4)); key = JSON.parse(s).fileKey || ""; } catch (e) {} }
-       JSON.stringify({ changeCount: Number(pb.changeCount), isFigma: h.indexOf("(figma)") >= 0, fileKey: key, bytes: h.length })`]);
-    try { return JSON.parse(r.out.trim()); } catch { return { changeCount: -1, isFigma: false, fileKey: '', bytes: 0 }; }
+       JSON.stringify({ changeCount: Number(pb.changeCount), isFigma: h.indexOf("(figma)") >= 0, isH2d: h.indexOf("(figh2d)") >= 0, fileKey: key, bytes: h.length })`]);
+    try { return JSON.parse(r.out.trim()); } catch { return { changeCount: -1, isFigma: false, isH2d: false, fileKey: '', bytes: 0 }; }
   }
 
   private sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
@@ -729,12 +774,12 @@ export class FigmaWebSocketServer extends EventEmitter {
     return { ok: false, error: 'Copy did not finish within 30 seconds.' };
   }
 
-  private async nativePaste(fileName: string, srcFileKey: string, changeCount: number): Promise<any> {
+  private async nativePaste(fileName: string, srcFileKey: string, changeCount: number, kind: 'figma' | 'h2d' = 'figma'): Promise<any> {
     const f = await this.nativeFront(fileName);
     if (f.needsAccess || f.error) return { ok: false, needsAccess: !!f.needsAccess, error: f.error };
     if (!f.frontmost || f.matches === false) return { ok: false, notFront: true, title: f.title, error: 'Click inside "' + fileName + '" first so it is the active file, then click Paste again.' };
     const clip = await this.readClipboard();
-    if (!clip.isFigma) return { ok: false, clipboardChanged: true, error: 'The clipboard no longer holds Figma layers.' };
+    if (kind === 'h2d' ? !clip.isH2d : !clip.isFigma) return { ok: false, clipboardChanged: true, error: 'The clipboard no longer holds Figma layers.' };
     if (srcFileKey && clip.fileKey && clip.fileKey !== srcFileKey) return { ok: false, clipboardChanged: true, error: 'The clipboard holds layers from another file.' };
     if (changeCount && clip.changeCount !== changeCount) return { ok: false, clipboardChanged: true, error: 'Something else was copied after the page was copied.' };
     const k = await this.pressShortcut('v');

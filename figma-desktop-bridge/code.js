@@ -699,6 +699,7 @@ figma.ui.onmessage = async (msg) => {
 
   // Custom FigShot: build screenshots + design system from captures
   if (msg.type === 'FIGSHOT_BUILD') { await figshotBuild(msg); return; }
+  if (typeof msg.type === 'string' && msg.type.indexOf('FIGSHOT_LAYERS_') === 0) { await figshotLayers(msg); return; }
   if (typeof msg.type === 'string' && msg.type.indexOf('TR_') === 0) { await trHandle(msg); return; }
 
   // REPORT_RESOLVE - turn node ids into readable names for the agent report (read-only)
@@ -8310,6 +8311,55 @@ async function fsBuildDesign(host, d, pages, x, y, stats) {
   return section;
 }
 
+// ---- Automatic paste of the editable layers (ui.html drives it; the local server
+// clicks the canvas and presses Cmd+V). PREP makes an empty Section where the
+// layers will land, SELECT selects it (API selection keeps the canvas focus),
+// COUNT reports how much has arrived, FIT sizes the Section around the result.
+async function figshotLayers(msg) {
+  var reply = function (o) { figma.ui.postMessage(Object.assign({ type: 'FIGSHOT_LAYERS_RESULT', op: msg.type }, o)); };
+  try {
+    var sec = msg.id ? await figma.getNodeByIdAsync(msg.id) : null;
+    if (msg.type === 'FIGSHOT_LAYERS_PREP') {
+      var page = figma.currentPage, x0 = 0, y0 = 0;
+      if (page.children.length) {
+        var maxR = -Infinity, minY = Infinity;
+        page.children.forEach(function (n) { maxR = Math.max(maxR, n.x + n.width); minY = Math.min(minY, n.y); });
+        x0 = maxR + 400; y0 = minY;
+      }
+      sec = figma.createSection();
+      sec.name = msg.name || 'Figma layers';
+      sec.x = x0; sec.y = y0;
+      sec.resizeWithoutConstraints(1600, 1200);
+      // Nothing selected while the server clicks the canvas (a click on a selected
+      // node can grab its handles); the view shows the empty Section.
+      figma.currentPage.selection = [];
+      figma.viewport.scrollAndZoomIntoView([sec]);
+      reply({ ok: true, id: sec.id, fileName: figma.root.name, fileKey: figma.fileKey || null });
+      return;
+    }
+    if (!sec || sec.removed || sec.type !== 'SECTION') { reply({ ok: false, error: 'The layers Section is gone.' }); return; }
+    if (msg.type === 'FIGSHOT_LAYERS_SELECT') { figma.currentPage.selection = [sec]; reply({ ok: true }); return; }
+    if (msg.type === 'FIGSHOT_LAYERS_COUNT') {
+      var n = 0; try { n = sec.findAll(function () { return true; }).length; } catch (e) { n = sec.children.length; }
+      reply({ ok: true, top: sec.children.length, count: n });
+      return;
+    }
+    if (msg.type === 'FIGSHOT_LAYERS_FIT') {
+      if (!sec.children.length) { if (msg.removeIfEmpty) sec.remove(); reply({ ok: true, empty: true }); return; }
+      var minX = Infinity, minY2 = Infinity, maxX = -Infinity, maxY = -Infinity;
+      sec.children.forEach(function (c) { minX = Math.min(minX, c.x); minY2 = Math.min(minY2, c.y); maxX = Math.max(maxX, c.x + c.width); maxY = Math.max(maxY, c.y + c.height); });
+      // Pasted frames sit at (pad, pad) inside the Section; grow it to wrap them.
+      var pad = 80, dx = pad - minX, dy = pad - minY2;
+      sec.children.forEach(function (c) { c.x += dx; c.y += dy; });
+      sec.resizeWithoutConstraints(Math.max(400, maxX - minX + pad * 2), Math.max(300, maxY - minY2 + pad * 2));
+      sec.name = msg.name || sec.name;
+      reply({ ok: true, width: sec.width, height: sec.height, top: sec.children.length });
+      return;
+    }
+    reply({ ok: false, error: 'unknown step' });
+  } catch (e) { reply({ ok: false, error: String(e && e.message || e) }); }
+}
+
 var fsCreated = [];
 async function figshotBuild(msg) {
   fsCreated = [];
@@ -8318,13 +8368,18 @@ async function figshotBuild(msg) {
     await Promise.all(['Regular', 'Medium', 'Semi Bold', 'Bold'].map(function (s) { return figma.loadFontAsync({ family: 'Inter', style: s }); }));
     var page = figma.currentPage;
     var x0 = 0, y0 = 0;
-    if (page.children.length) {
+    // Layers already pasted by the automatic paste: put everything else below them.
+    var pasted = msg.layerSectionId ? await figma.getNodeByIdAsync(msg.layerSectionId) : null;
+    if (pasted && pasted.type === 'SECTION' && !pasted.removed) {
+      x0 = pasted.x; y0 = pasted.y + pasted.height + 300;
+    } else if (page.children.length) {
+      pasted = null;
       var maxR = -Infinity, minY = Infinity;
       page.children.forEach(function (n) { maxR = Math.max(maxR, n.x + n.width); minY = Math.min(minY, n.y); });
       x0 = maxR + 400; y0 = minY;
     }
-    var made = [], rowY = y0, layerSection = null;
-    if (msg.hasLayers) {
+    var made = pasted ? [pasted] : [], rowY = y0, layerSection = null;
+    if (msg.hasLayers && !pasted) {
       layerSection = figma.createSection(); fsCreated.push(layerSection);
       layerSection.name = 'Figma layers — paste here with Cmd+V';
       layerSection.x = x0; layerSection.y = rowY;

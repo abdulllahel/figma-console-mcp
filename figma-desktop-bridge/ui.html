@@ -3650,22 +3650,109 @@ function renderReport(root) {
       };
     }
 
-    async function paste(sel) {
+    // ---- automatic paste of the editable layers -------------------------------
+    // Same mechanism as the Copy/Paste tab: the local server clicks the canvas next to
+    // this panel (macOS Accessibility, "node"), the plugin selects an empty Section,
+    // and the server presses a real Cmd+V with the layers on the clipboard.
+    var fsAuto = { err: '', needsAccess: false, accessApp: '', pasted: 0, auto: false };
+    var layerWaiters = {};
+    function askLayers(type, extra, ms) {
+      return new Promise(function (res, rej) {
+        var t = setTimeout(function () { delete layerWaiters[type]; rej(new Error('Figma did not answer in time.')); }, ms || 20000);
+        layerWaiters[type] = function (m) { clearTimeout(t); res(m); };
+        parent.postMessage({ pluginMessage: Object.assign({ type: type }, extra || {}) }, '*');
+      });
+    }
+    window.addEventListener('message', function (ev) {
+      var m = ev.data && ev.data.pluginMessage;
+      if (m && m.type === 'FIGSHOT_LAYERS_RESULT' && layerWaiters[m.op]) { var w = layerWaiters[m.op]; delete layerWaiters[m.op]; w(m); }
+    });
+    function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+    async function nj(port, path, body, ms) {
+      var r = await fetch('http://localhost:' + port + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}), signal: AbortSignal.timeout(ms || 20000) });
+      if (r.status === 404) { var e = new Error('old server'); e.old = true; throw e; }
+      return r.json();
+    }
+    // Find a server that supports automatic paste, and read where this panel is on screen
+    // right now (before the mouse moves away from the button).
+    async function locate(ev, prefer) {
+      var pt = { clientX: ev && ev.clientX, clientY: ev && ev.clientY };
+      if (typeof pt.clientX !== 'number') return null;
+      var ports = [prefer].concat(PORTS.filter(function (p) { return p !== prefer; })).filter(Boolean);
+      for (var i = 0; i < ports.length; i++) {
+        try { var j = await nj(ports[i], '/transfer/native/locate', pt, 2500); if (j && j.ok) return { port: ports[i], panelX: j.panelX, panelY: j.panelY }; } catch (e) {}
+      }
+      return null;
+    }
+    async function autoPasteLayers(loc, html, name) {
+      var prep = await askLayers('FIGSHOT_LAYERS_PREP', { name: name }, 20000);
+      if (!prep.ok) throw new Error(prep.error || 'Could not make the layers Section.');
+      var id = prep.id, ok = false;
+      try {
+        setStatus('Putting the layers on the clipboard…');
+        var c = await nj(loc.port, '/transfer/native/set-clipboard', { html: html }, 90000);
+        if (!c.ok) { fsAuto.err = c.error || 'Could not write the clipboard.'; return { ok: false }; }
+        setStatus('Clicking the canvas…');
+        var f = await nj(loc.port, '/transfer/native/focus', { fileName: prep.fileName, panelX: loc.panelX, panelY: loc.panelY }, 20000);
+        if (!f.ok) { fsAuto.err = f.error || 'Could not click the canvas.'; fsAuto.needsAccess = !!f.needsAccess; fsAuto.accessApp = f.accessApp || ''; return { ok: false }; }
+        await askLayers('FIGSHOT_LAYERS_SELECT', { id: id }, 10000);
+        setStatus('Pressing Cmd+V…');
+        var p = await nj(loc.port, '/transfer/native/paste', { fileName: prep.fileName, kind: 'h2d', changeCount: c.changeCount }, 20000);
+        if (!p.ok) { fsAuto.err = p.error || 'Paste failed.'; fsAuto.needsAccess = !!p.needsAccess; fsAuto.accessApp = p.accessApp || ''; return { ok: false }; }
+        // Wait until Figma has finished building the layers (the count stops growing).
+        var count = 0, last = -1, since = Date.now(), start = Date.now();
+        while (Date.now() - start < 180000) {
+          await wait(700);
+          count = (await askLayers('FIGSHOT_LAYERS_COUNT', { id: id }, 10000)).count || 0;
+          setStatus('Pasting the editable layers… ' + count + ' layer(s)');
+          if (count !== last) { last = count; since = Date.now(); }
+          else if (count > 0 && Date.now() - since > 3000) break;
+          if (!count && Date.now() - start > 15000) break;
+        }
+        if (!count) { fsAuto.err = 'Figma ignored Cmd+V (the canvas did not get focus). Keep this panel over the canvas, not over the side panels, and try again.'; return { ok: false }; }
+        await askLayers('FIGSHOT_LAYERS_FIT', { id: id, name: name }, 20000);
+        fsAuto.pasted = count; ok = true;
+        return { ok: true, id: id };
+      } finally {
+        if (!ok) { try { await askLayers('FIGSHOT_LAYERS_FIT', { id: id, removeIfEmpty: true }, 10000); } catch (e) {} }
+      }
+    }
+
+    async function paste(sel, ev) {
       if (!sel.length) { setStatus('Tick at least one page first.'); return; }
       if (busy) return;
-      busy = true; needCopy = false; rerender();
+      busy = true; needCopy = false; fsAuto = { err: '', needsAccess: false, accessApp: '', pasted: 0, auto: false }; rerender();
       try {
-        // 1) Layers -> clipboard FIRST (while the click's user gesture is still valid).
+        // 0) Where is this panel? Read it at once, while the pointer is still on the button.
+        var locP = locate(ev, sel[0] && sel[0].port);
+        // 1) Layers -> clipboard now (while the click's user gesture is still valid), so a
+        //    manual Cmd+V still works if the automatic paste can't run.
         var copied = false, hasLayers = false;
         if (sel.every(function (c) { return cache[c.id]; })) {
           var html = layersHtml(sel); hasLayers = !!html;
           if (html) { lastCopyHtml = html; copied = copyHtml(html); }
         }
+        var loc = await locP;
         setStatus('Loading captures…');
         await Promise.all(sel.map(load));
-        if (!hasLayers) { var h2 = layersHtml(sel); hasLayers = !!h2; if (h2) { lastCopyHtml = h2; copied = copyHtml(h2); } }
-        // 2) Screenshots + design system -> built natively by the plugin.
-        setStatus('Building in Figma…');
+        var h2 = layersHtml(sel); hasLayers = !!h2;
+        if (h2) { lastCopyHtml = h2; if (!copied) copied = copyHtml(h2); }
+        // 2) Paste the editable layers FIRST, automatically.
+        var layerSectionId = null;
+        if (hasLayers) {
+          if (!loc) fsAuto.err = 'Automatic paste needs the latest Figma Console server (quit and reopen Claude).';
+          else {
+            var names = sel.map(function (c) { return hostOf(c.url) + pathOf(c.url); });
+            var name = 'Figma layers — ' + (names.length > 2 ? names.slice(0, 2).join(', ') + ' +' + (names.length - 2) : names.join(', '));
+            try {
+              var ap = await autoPasteLayers(loc, h2, name);
+              if (ap.ok) { layerSectionId = ap.id; fsAuto.auto = true; }
+            } catch (e) { fsAuto.err = String(e && e.message || e); }
+          }
+          if (!fsAuto.auto && !copied) copied = copyHtml(h2);
+        }
+        // 3) Then screenshots, then the design system -> built natively by the plugin.
+        setStatus(fsAuto.auto ? 'Layers pasted ✓ — building screenshots and design system…' : 'Building in Figma…');
         var byHost = {}, hosts = [];
         sel.forEach(function (c) { var h = hostOf(c.url); if (!byHost[h]) { byHost[h] = []; hosts.push(h); } byHost[h].push(c); });
         var sites = [];
@@ -3686,8 +3773,8 @@ function renderReport(root) {
             designPages: everyPage.map(function (c) { return { path: pathOf(c.url), title: c.title }; })
           });
         }
-        needCopy = hasLayers && !copied;
-        parent.postMessage({ pluginMessage: { type: 'FIGSHOT_BUILD', hasLayers: hasLayers, sites: sites } }, '*');
+        needCopy = hasLayers && !fsAuto.auto && !copied;
+        parent.postMessage({ pluginMessage: { type: 'FIGSHOT_BUILD', hasLayers: hasLayers && !fsAuto.auto, layerSectionId: layerSectionId, sites: sites } }, '*');
       } catch (e) {
         busy = false; setStatus('Failed: ' + (e && e.message || e)); rerender();
       }
@@ -3701,6 +3788,7 @@ function renderReport(root) {
       var s = m.stats, parts = [];
       if (s.pages) parts.push(s.pages + ' page section(s) with screenshots');
       if (s.designs) parts.push(s.designs + ' design system(s): ' + s.variables + ' variables, ' + s.textStyles + ' text styles, ' + s.effectStyles + ' shadows, ' + s.components + ' components');
+      if (fsAuto.auto) parts.unshift('editable layers pasted (' + fsAuto.pasted + ' layers)');
       fsStatus = 'Done — ' + (parts.join('; ') || 'nothing to build') + (m.selectedLayers ? (needCopy ? '. Click "Copy layers", then press Cmd+V to paste the page layers into the selected Section.' : '. Now press Cmd+V to paste the page layers into the selected Section.') : '.');
       rerender();
     });
@@ -3761,7 +3849,7 @@ function renderReport(root) {
           });
           var mini = el('button', 'fs-mini', 'Paste in Figma'); mini.disabled = busy;
           mini.title = 'Paste only the ticked pages of ' + host;
-          mini.onclick = function () { paste(pageSel); };
+          mini.onclick = function (ev) { paste(pageSel, ev); };
           body.appendChild(mini);
           acc.appendChild(body);
         }
@@ -3770,10 +3858,17 @@ function renderReport(root) {
       wrap.appendChild(list);
 
       var main = el('button', 'fs-main', 'Paste in Figma' + (sel.length ? ' (' + sel.length + ')' : '')); main.disabled = busy || !sel.length;
-      main.onclick = function () { paste(sel); };
+      main.onclick = function (ev) { paste(sel, ev); };
       wrap.appendChild(main);
       if (needCopy) { var cp = el('button', 'fs-copy', 'Copy layers (then Cmd+V)'); cp.onclick = function () { if (lastCopyHtml && copyHtml(lastCopyHtml)) { needCopy = false; fsStatus = 'Layers copied — press Cmd+V.'; } else fsStatus = 'Copy failed — click the button again.'; rerender(); }; wrap.appendChild(cp); }
       var st = el('div'); st.id = 'fs-status'; st.textContent = fsStatus; wrap.appendChild(st);
+      if (fsAuto.err && !busy) {
+        var er = el('div', 'tr-msg bad', 'Automatic paste: ' + fsAuto.err + ' The layers are on the clipboard — press Cmd+V to paste them into the selected Section.'); wrap.appendChild(er);
+        if (fsAuto.needsAccess) {
+          wrap.appendChild(el('div', 'tr-msg', 'One-time setup: System Settings ▸ Privacy & Security ▸ Accessibility — turn on "node" (that is the figma-console server; switching on Claude is not enough), then try again.'));
+          if (fsAuto.accessApp) { var ap2 = el('div', 'tr-msg', 'If "node" is not in the list, click +, press Cmd+Shift+G and paste: ' + fsAuto.accessApp); ap2.style.userSelect = 'text'; ap2.style.wordBreak = 'break-all'; wrap.appendChild(ap2); }
+        }
+      }
       root.appendChild(wrap);
       list.scrollTop = listScroll;
     };

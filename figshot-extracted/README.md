@@ -113,6 +113,42 @@ permission this needs (to see manifest URLs that never appear in the DOM)
 means Chrome will ask you to re-approve the extension's permissions after
 this update.
 
+## Capturing pages inside "app shell" iframes (shared Claude artifacts)
+
+Some pages show their real content inside one big iframe while the outer page
+does not scroll. Shared Claude artifacts are the main example, in two layouts:
+
+| Link | Frames |
+|---|---|
+| `claude.ai/public/artifacts/<id>` | claude.ai → `www.claudeusercontent.com` iframe (the page) |
+| `claude.ai/artifact/<id>` | claude.ai → `<id>.frame.claudeusercontent.com` shell → `about:srcdoc` iframe (the page) |
+
+**Full Page** detects this (a page that doesn't scroll and one iframe covering at
+least half of it) and then, level by level, down to the frame that holds the page:
+
+1. re-injects fiGapture into every frame (frames often load after the toolbar opens);
+2. hides each shell's header/side panels and makes each iframe as tall as its
+   content, so the whole page is laid out at once;
+3. keeps viewport-sized sections (`100vh`, `min-h-screen` heroes) at their
+   on-screen height, so nothing stretches;
+4. captures the editable Figma layers **inside the deepest frame**, reads the
+   design tokens there, and takes the screenshots by resizing the window to one
+   slice and scrolling slice by slice (Chrome does not paint a cross-site iframe
+   far outside the visible window, so `captureBeyondViewport` alone gave blank
+   slices below the first screen);
+5. puts everything back once the capture is saved.
+
+If a frame can't be reached, Full Page stops with a message instead of capturing
+the empty shell.
+
+Code: `src/content/embed.js` (injected with the capture engine in every frame),
+`fsFull` in `src/content/toolbar.js`, and `embedInject`, `embedFrameTarget`,
+`notifyArchiveDone` and the embed branch of `cdpSlices` in
+`src/background/service-worker.js`. The manifest asks for
+`https://*.claudeusercontent.com/*` up front so artifacts work even if "all sites"
+access was never granted. Other screenshot tools (PNG/PDF export) still capture
+the outer page only.
+
 ## Development notes
 
 - Reload the extension from `chrome://extensions/` after changing source files.

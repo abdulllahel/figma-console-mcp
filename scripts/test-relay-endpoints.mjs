@@ -78,6 +78,11 @@ await new Promise(r => setTimeout(r, 200));
 await t('native check reports access state', 'GET', '/transfer/native/check', null, (s, b) => {
   const r = J(b); return s === 200 && typeof r.ok === 'boolean' && (r.ok || (r.needsAccess === true && /node/.test(r.accessApp || '')));
 });
+await t('native locate reads panel position', 'POST', '/transfer/native/locate', JSON.stringify({ clientX: 10, clientY: 20 }), (s, b) => {
+  const r = J(b); return s === 200 && (process.platform !== 'darwin' || (r.ok === true && typeof r.panelX === 'number' && typeof r.panelY === 'number'));
+});
+await t('set-clipboard refuses empty html (clipboard untouched)', 'POST', '/transfer/native/set-clipboard', JSON.stringify({ html: '' }), (s, b) => s === 200 && J(b).ok === false);
+await t('h2d paste route answers', 'POST', '/transfer/native/paste', JSON.stringify({ fileName: '', kind: 'h2d' }), (s, b) => s === 200 && J(b).ok === false);
 await t('server still alive after errors', 'GET', '/transfer/ping', null, s => s === 200);
 console.log(results.join('\n'));
 console.log(`\nServer crashes (uncaught errors): ${crashes.length}${crashes.length ? '  -> ' + crashes.join(', ') : ''}`);
