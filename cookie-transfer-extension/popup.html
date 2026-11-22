@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cookie Transfer</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>Cookie Transfer</h1>
+    <p class="muted">Cookies and site data only. Passwords aren't included. Nothing leaves this computer.</p>
+  </header>
+
+  <section id="step-scan">
+    <button id="scan" class="primary">Scan signed-in sites</button>
+    <p class="muted small">Chrome will ask to let this extension read all sites. Access is dropped again when you close the popup.</p>
+  </section>
+
+  <section id="step-pick" hidden>
+    <input id="filter" type="search" placeholder="Filter sites" autocomplete="off">
+    <label class="row all">
+      <input type="checkbox" id="select-all" checked>
+      <span>Select all</span>
+      <span id="count" class="muted right"></span>
+    </label>
+    <ul id="sites"></ul>
+
+    <details>
+      <summary>Send to a local app</summary>
+      <label class="field">Receiver URL
+        <input id="url" type="text" value="http://127.0.0.1:8765/cookies" spellcheck="false">
+      </label>
+      <label class="field">Token
+        <input id="token" type="password" placeholder="Shown by the receiver" spellcheck="false" autocomplete="off">
+      </label>
+      <button id="send">Send selected</button>
+    </details>
+
+    <div class="actions">
+      <button id="export" class="primary">Export to file</button>
+    </div>
+  </section>
+
+  <section id="step-import">
+    <hr>
+    <label class="field">Import from file
+      <input id="import-file" type="file" accept="application/json,.json">
+    </label>
+    <button id="import" disabled>Import cookies</button>
+  </section>
+
+  <p id="status" role="status" aria-live="polite"></p>
+  <script src="popup.js"></script>
+</body>
+</html>

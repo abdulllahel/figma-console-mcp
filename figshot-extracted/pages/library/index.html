@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>fiGapture Library</title>
+<style>
+:root{--bg:#f6f7ee;--fg:#1d2410;--mut:#6b7455;--line:#dfe4c8;--card:#fcfdf6;--acc:#4F7014;--accfg:#fff}
+@media(prefers-color-scheme:dark){:root{--bg:#12170b;--fg:#eef2dc;--mut:#a3ac8a;--line:#2f3a1c;--card:#1b2211;--acc:#9dba4c;--accfg:#141a07}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#app{max-width:960px;margin:0 auto;padding:24px 16px 80px}
+h1{font-size:22px;margin:0;letter-spacing:-.01em}.mut{color:var(--mut)}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:16px 0}
+.opts{display:flex;gap:14px;flex-wrap:wrap;margin:4px 0 12px}
+label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+button{font:inherit;padding:8px 14px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer}
+button.p{background:var(--acc);color:var(--accfg);border-color:var(--acc)}
+button:disabled{opacity:.5;cursor:default}
+.site{margin:28px 0}.sitehead{display:flex;gap:10px;align-items:center}.sitehead .t{flex:1}.sitename{font-size:17px;font-weight:700}
+.card{border:1px solid var(--line);background:var(--card);border-radius:16px;padding:14px;margin:12px 0}
+.head{display:flex;gap:10px;align-items:flex-start}
+.head .t{flex:1;min-width:0}
+.title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.row img{height:90px;border-radius:6px;border:1px solid var(--line)}
+#status{position:sticky;top:0;background:var(--bg);padding:8px 0;min-height:24px;z-index:2}
+#overlay{display:none;position:fixed;inset:0;background:var(--bg);color:var(--fg);z-index:99999;align-items:center;justify-content:center;font-size:16px}
+#stage{position:absolute;left:0;top:0;background:#fff;color:#111;z-index:99990}
+</style>
+</head>
+<body>
+<div id="app">
+  <h1 style="display:flex;align-items:center;gap:10px"><img src="../../assets/system-asset/icon48.png" width="34" height="34" alt="">fiGapture Library</h1>
+  <div class="mut">Everything you capture with <b>Full Page</b> is saved here, in your browser. Copy it, then paste into Figma.</div>
+  <div class="bar">
+    <button class="p" id="copySel">Copy selected to Figma</button>
+    <button id="selAll">Select all</button>
+    <button id="delSel">Delete selected</button>
+  </div>
+  <div class="opts">
+    <label><input type="checkbox" id="oPage" checked> Page (Figma layers)</label>
+    <label><input type="checkbox" id="oShots" checked> Screenshots</label>
+    <label><input type="checkbox" id="oDesign" checked> Design system doc</label>
+  </div>
+  <div id="status" class="mut"></div>
+  <div id="list"></div>
+</div>
+<div id="overlay"><div id="overlayMsg">Preparing for Figma…</div></div>
+<div id="stage"></div>
+<script src="../../src/engine/capture.js"></script>
+<script src="library.js"></script>
+</body>
+</html>

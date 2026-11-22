@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>fiGapture Viewer</title>
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --bg: #121a09;
+        --surface: rgba(201, 218, 142, 0.07);
+        --border: rgba(201, 218, 142, 0.18);
+        --accent: #9dba4c;
+        --accent-bg: rgba(157, 186, 76, 0.15);
+        --text: #f1f5e1;
+        --muted: rgba(255, 255, 255, 0.4);
+        --success: #22c55e;
+        --radius: 14px;
+      }
+
+      html,
+      body {
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 13px;
+        overflow: hidden;
+      }
+
+      /* ── Layout ── */
+      #app {
+        display: grid;
+        grid-template-rows: 52px 1fr;
+        grid-template-columns: 1fr 300px;
+        height: 100vh;
+      }
+
+      /* ── Header ── */
+      #header {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 20px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(18, 26, 9, 0.9);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+      }
+      #logo {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 700;
+        font-size: 14px;
+        letter-spacing: -0.3px;
+        color: var(--text);
+        text-decoration: none;
+      }
+      #logo img {
+        width: 18px;
+        height: 18px;
+      }
+      #logo .sep {
+        color: var(--muted);
+        font-weight: 300;
+        margin: 0 2px;
+      }
+      #filename {
+        font-size: 13px;
+        color: var(--muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 500px;
+      }
+      #header-actions {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      /* ── Background slider ── */
+      #bg-slider-wrap {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      #bg-slider-wrap span {
+        font-size: 11px;
+        color: var(--muted);
+        user-select: none;
+      }
+      #bg-slider {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 96px;
+        height: 4px;
+        border-radius: 2px;
+        background: linear-gradient(to right, #fff 0%, #000 100%);
+        outline: none;
+        cursor: pointer;
+      }
+      #bg-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: #fff;
+        border: 2px solid rgba(0, 0, 0, 0.4);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+        cursor: pointer;
+      }
+      #bg-slider::-moz-range-thumb {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: #fff;
+        border: 2px solid rgba(0, 0, 0, 0.4);
+        cursor: pointer;
+      }
+
+      /* ── Preview pane ── */
+      #preview {
+        overflow: auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background:
+          radial-gradient(
+            circle at 50% 50%,
+            rgba(157, 186, 76, 0.04) 0%,
+            transparent 70%
+          ),
+          repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 23px,
+            rgba(255, 255, 255, 0.03) 23px,
+            rgba(255, 255, 255, 0.03) 24px
+          ),
+          repeating-linear-gradient(
+            90deg,
+            transparent,
+            transparent 23px,
+            rgba(255, 255, 255, 0.03) 23px,
+            rgba(255, 255, 255, 0.03) 24px
+          );
+        position: relative;
+      }
+      #preview-inner {
+        max-width: 90%;
+        max-height: 90%;
+        position: relative;
+      }
+      #preview-inner img,
+      #preview-inner svg,
+      #preview-inner object {
+        max-width: 100%;
+        max-height: 80vh;
+        display: block;
+        border-radius: 4px;
+      }
+      #preview-inner svg {
+        width: auto;
+        height: auto;
+      }
+      #zoom-hint {
+        position: absolute;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 11px;
+        color: var(--muted);
+        background: rgba(0, 0, 0, 0.5);
+        padding: 4px 10px;
+        border-radius: 20px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.3s;
+      }
+      #preview:hover #zoom-hint {
+        opacity: 1;
+      }
+
+      /* ── Sidebar ── */
+      #sidebar {
+        border-left: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: rgba(12, 12, 13, 0.8);
+      }
+      .section {
+        padding: 16px;
+        border-bottom: 1px solid var(--border);
+      }
+      .section-title {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 12px;
+      }
+
+      /* ── Buttons ── */
+      .btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        width: 100%;
+        padding: 9px 14px;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        transition:
+          background 0.15s,
+          border-color 0.15s,
+          transform 0.1s;
+        outline: none;
+        text-align: left;
+      }
+      .btn:hover {
+        background: rgba(201, 218, 142, 0.18);
+        border-color: rgba(255, 255, 255, 0.15);
+      }
+      .btn:active {
+        transform: scale(0.98);
+      }
+      .btn.primary {
+        background: var(--accent);
+        border-color: transparent;
+        color: #121a06;
+        font-weight: 600;
+      }
+      .btn.primary:hover {
+        background: #c9da8e;
+      }
+      .btn.success {
+        background: rgba(34, 197, 94, 0.15);
+        border-color: rgba(34, 197, 94, 0.3);
+        color: var(--success);
+      }
+      .btn img {
+        width: 14px;
+        height: 14px;
+        opacity: 0.8;
+        filter: brightness(0) invert(1);
+      }
+      .btn-row {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      /* ── Meta info ── */
+      .meta-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 5px 0;
+      }
+      .meta-label {
+        color: var(--muted);
+      }
+      .meta-value {
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ── URL box ── */
+      #url-box {
+        font-size: 11px;
+        color: var(--muted);
+        word-break: break-all;
+        line-height: 1.5;
+        padding: 8px 10px;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        cursor: pointer;
+        transition: border-color 0.15s;
+        user-select: all;
+      }
+      #url-box:hover {
+        border-color: rgba(255, 255, 255, 0.2);
+      }
+
+      /* ── Markup viewer ── */
+      #markup-wrap {
+        flex: 1;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      #markup-wrap .section {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      #markup-code {
+        flex: 1;
+        overflow: auto;
+        font-family: "SF Mono", "Fira Code", monospace;
+        font-size: 10.5px;
+        line-height: 1.6;
+        color: rgba(255, 255, 255, 0.65);
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 10px;
+        white-space: pre;
+        word-break: break-all;
+        white-space: pre-wrap;
+      }
+
+      /* ── Loading / error ── */
+      #status {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        color: var(--muted);
+        font-size: 13px;
+        pointer-events: none;
+      }
+      .spinner {
+        width: 28px;
+        height: 28px;
+        border: 2px solid rgba(255, 255, 255, 0.1);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* ── Toast ── */
+      #toast {
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%) translateY(8px);
+        background: rgba(24, 24, 27, 0.95);
+        color: var(--text);
+        font-size: 13px;
+        font-weight: 500;
+        padding: 10px 20px;
+        border-radius: 8px;
+        border: 1px solid rgba(201, 218, 142, 0.16);
+        backdrop-filter: blur(12px);
+        pointer-events: none;
+        opacity: 0;
+        transition:
+          opacity 0.25s,
+          transform 0.25s;
+        z-index: 9999;
+      }
+      #toast.show {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
+      #toast.error {
+        border-color: rgba(239, 68, 68, 0.4);
+        color: #fca5a5;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <header id="header">
+        <a id="logo" href="#" title="fiGapture">
+          <img
+            id="logo-img"
+            src="../../assets/system-asset/icon48.png"
+            alt="fiGapture"
+          />
+          <span>fiGapture</span>
+          <span class="sep">/</span>
+        </a>
+        <span id="filename">Loading…</span>
+        <div id="header-actions">
+          <div id="bg-slider-wrap" title="Preview background: white → black">
+            <span>☀</span>
+            <input type="range" id="bg-slider" min="0" max="255" value="20" />
+            <span>☾</span>
+          </div>
+          <button
+            class="btn"
+            id="btn-open-original"
+            title="Open original URL in new tab"
+            style="width: auto; padding: 6px 12px; font-size: 12px"
+          >
+            Open original ↗
+          </button>
+        </div>
+      </header>
+
+      <main id="preview">
+        <div id="preview-inner"></div>
+        <div id="status">
+          <div class="spinner"></div>
+          <span>Loading…</span>
+        </div>
+        <div id="zoom-hint">Scroll to zoom · Pinch to zoom</div>
+      </main>
+
+      <aside id="sidebar">
+        <div class="section">
+          <div class="section-title">Actions</div>
+          <div class="btn-row">
+            <button class="btn primary" id="btn-copy-svg">
+              <img id="icon-copy" /> Copy SVG
+            </button>
+            <button class="btn" id="btn-copy-png">
+              <img id="icon-copy2" /> Copy as PNG
+            </button>
+            <button class="btn" id="btn-dl-svg">
+              <img id="icon-dl" /> Download SVG
+            </button>
+            <button class="btn" id="btn-dl-png">
+              <img id="icon-dl2" /> Download PNG
+            </button>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Info</div>
+          <div class="meta-row">
+            <span class="meta-label">Type</span
+            ><span class="meta-value" id="meta-type">—</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">Size</span
+            ><span class="meta-value" id="meta-size">—</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">Dimensions</span
+            ><span class="meta-value" id="meta-dims">—</span>
+          </div>
+          <div class="meta-row" id="meta-viewbox-row" style="display: none">
+            <span class="meta-label">viewBox</span
+            ><span class="meta-value" id="meta-viewbox">—</span>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Source URL</div>
+          <div id="url-box" title="Click to copy URL"></div>
+        </div>
+
+        <div id="markup-wrap">
+          <div
+            class="section"
+            style="
+              flex: 1;
+              display: flex;
+              flex-direction: column;
+              overflow: hidden;
+            "
+          >
+            <div class="section-title">Markup</div>
+            <pre id="markup-code"></pre>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <div id="toast"></div>
+
+    <script src="./viewer.js"></script>
+  </body>
+</html>

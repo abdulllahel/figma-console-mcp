@@ -1,0 +1,93 @@
+{
+  "update_url": "https://clients2.google.com/service/update2/crx",
+  "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhbdr3JNLvQ1BgIXxjKMuCzcRZJt6tttDfyccH8tOKgoMzLbSnXiuJPl4HjqjF3/esamGIvh2+cBu1FynBc8x90mUDPqNJHbMZ7kfKbKVTcyuNxkGekxbqIDc+rTFVTBmKKQg1k8prS3/1QD/YR2BbYdooKA9jUJcCtnv9vV77Y5Yn4FjWbW5kE+LrLquw7ce7QMBPf+Z1tEEaazR797wTlPuC3clQrxTngzOSyJag8PYLXm71+VWpQtqw6dm7Q1duADckFrNeOnwDGJ+7m9T3tvPJIoCK5z41LypEL215gs4PELs8Y3VuUEj3baO3qAgsH5msQZlFqkmxvEcVxkR/QIDAQAB",
+  "name": "fiGapture",
+  "short_name": "fiGapture",
+  "version": "4.8",
+  "description": "Captured and exported by fiGapture",
+  "author": "Abdullah Al Mamun",
+  "minimum_chrome_version": "116",
+  "action": {
+    "default_icon": {
+      "16": "assets/system-asset/icon16.png",
+      "48": "assets/system-asset/icon48.png",
+      "128": "assets/system-asset/icon128.png"
+    },
+    "default_title": "fiGapture"
+  },
+  "icons": {
+    "16": "assets/system-asset/icon16.png",
+    "48": "assets/system-asset/icon48.png",
+    "128": "assets/system-asset/icon128.png"
+  },
+  "background": {
+    "service_worker": "src/background/service-worker.js"
+  },
+  "commands": {
+    "toggle-extension": {
+      "suggested_key": {
+        "default": "Alt+F",
+        "mac": "Alt+F"
+      },
+      "description": "Activate fiGapture tool"
+    },
+    "open-library": {
+      "suggested_key": {
+        "default": "Alt+L",
+        "mac": "Alt+L"
+      },
+      "description": "Open the fiGapture Library"
+    },
+    "capture-full-page": {
+      "suggested_key": {
+        "default": "Alt+P",
+        "mac": "Alt+P"
+      },
+      "description": "Full-page capture (Figma + screenshots)"
+    }
+  },
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "scripting",
+    "declarativeNetRequest",
+    "clipboardWrite",
+    "offscreen",
+    "storage",
+    "debugger"
+  ],
+  "optional_permissions": [
+    "webRequest",
+    "downloads"
+  ],
+  "host_permissions": [],
+  "optional_host_permissions": [
+    "<all_urls>",
+    "file:///*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self';"
+  },
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "resources": [
+        "assets/icons/*.svg",
+        "assets/system-asset/*.png",
+        "pages/viewer/index.html",
+        "pages/viewer/viewer.js",
+        "pages/screenshot/index.html",
+        "pages/screenshot/screenshot.js",
+        "pages/stream/index.html",
+        "pages/stream/stream.js"
+      ]
+    }
+  ],
+  "options_ui": {
+    "page": "pages/library/index.html",
+    "open_in_tab": true
+  }
+}

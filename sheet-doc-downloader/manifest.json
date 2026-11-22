@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Sheet Doc One-Click Download",
+  "version": "1.0.0",
+  "description": "Adds a one-click download button to the Google Sheets link preview card.",
+  "permissions": ["downloads", "storage"],
+  "host_permissions": [
+    "https://docs.google.com/*",
+    "https://drive.google.com/*",
+    "https://*.googleusercontent.com/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://docs.google.com/spreadsheets/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options.html"
+}

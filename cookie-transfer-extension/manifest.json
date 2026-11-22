@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Cookie Transfer",
+  "version": "0.1.0",
+  "description": "Choose sites and copy their cookies to a local app or file, or import them back. Everything stays on this computer.",
+  "minimum_chrome_version": "119",
+  "permissions": ["cookies"],
+  "optional_host_permissions": ["<all_urls>"],
+  "action": {
+    "default_title": "Cookie Transfer",
+    "default_popup": "popup.html"
+  }
+}

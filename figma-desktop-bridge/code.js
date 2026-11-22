@@ -485,8 +485,293 @@ async function resolveSlotNode(params) {
   throw new Error('Provide slotId OR (instanceId + slotName)');
 }
 
+// ============================================================================
+// GHOST CURSORS (optional, toggled from the agent panel)
+// One locked container frame per page holds one small cursor per agent. All
+// ghost nodes are tagged with plugin data and ignored by the documentchange
+// handler. They are real nodes (visible to collaborators, exports and undo),
+// so they are removed when an agent goes idle, when toggled off, and on close.
+// ============================================================================
+var GHOST_TAG = 'agentGhostCursor';
+var GHOST_CONTAINER_NAME = '⟡ Agent cursors (temporary)';
+var ghostIds = {};          // every ghost node id ever created (ignored by documentchange)
+var ghostEnabled = true;
+var ghosts = {};            // agentKey -> { node, tx, ty, timer, page }
+var ghostFontReady = false;
+var ghostFont = { family: 'Inter', style: 'Medium' };
+
+function ghostMark(node) {
+  ghostIds[node.id] = true;
+  node.setPluginData(GHOST_TAG, '1');
+}
+
+async function ghostContainerFor(page) {
+  for (var i = 0; i < page.children.length; i++) {
+    var c = page.children[i];
+    if (c.type === 'FRAME' && c.getPluginData(GHOST_TAG) === 'container') { ghostIds[c.id] = true; return c; }
+  }
+  var f = figma.createFrame();
+  f.name = GHOST_CONTAINER_NAME;
+  f.resize(1, 1); f.x = 0; f.y = 0;
+  f.fills = []; f.clipsContent = false;
+  f.setPluginData(GHOST_TAG, 'container'); ghostIds[f.id] = true;
+  page.appendChild(f);
+  f.locked = true;
+  return f;
+}
+
+function ghostScaleNow() {
+  return Math.max(0.05, Math.min(40, 1.15 / (figma.viewport.zoom || 1)));
+}
+
+// Built at an absolute scale (no rescale() drift): all sizes are multiplied by s.
+async function ghostBuild(container, name, color, s) {
+  if (!ghostFontReady) {
+    // Inter has no Bengali glyphs; prefer Noto Sans Bengali, fall back to Inter.
+    var candidates = [{ family: 'Noto Sans Bengali', style: 'Medium' }, { family: 'Noto Sans Bengali', style: 'Regular' }, { family: 'Inter', style: 'Medium' }];
+    for (var ci = 0; ci < candidates.length && !ghostFontReady; ci++) {
+      try { await figma.loadFontAsync(candidates[ci]); ghostFont = candidates[ci]; ghostFontReady = true; } catch (e) {}
+    }
+  }
+  var rgb = { r: parseInt(color.slice(1, 3), 16) / 255, g: parseInt(color.slice(3, 5), 16) / 255, b: parseInt(color.slice(5, 7), 16) / 255 };
+  var cur = figma.createFrame();
+  cur.name = name; cur.fills = []; cur.clipsContent = false; cur.resize(12 * s, 19 * s);
+  container.appendChild(cur); ghostMark(cur);
+  var arrow = figma.createVector();
+  cur.appendChild(arrow); ghostMark(arrow);
+  var pts = [[0, 0], [0, 16], [4.5, 12], [8, 19], [10.5, 18], [7, 11.5], [12, 11.5]];
+  await arrow.setVectorNetworkAsync({
+    vertices: pts.map(function(p) { return { x: p[0] * s, y: p[1] * s }; }),
+    segments: [0, 1, 2, 3, 4, 5, 6].map(function(i) { return { start: i, end: (i + 1) % 7 }; }),
+    regions: [{ windingRule: 'NONZERO', loops: [[0, 1, 2, 3, 4, 5, 6]] }]
+  });
+  arrow.fills = [{ type: 'SOLID', color: rgb }];
+  arrow.strokes = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }]; arrow.strokeWeight = Math.max(0.1, s);
+  var label = figma.createFrame();
+  label.layoutMode = 'HORIZONTAL'; label.primaryAxisSizingMode = 'AUTO'; label.counterAxisSizingMode = 'AUTO';
+  label.paddingLeft = label.paddingRight = 6 * s; label.paddingTop = label.paddingBottom = 2 * s;
+  label.cornerRadius = 4 * s; label.fills = [{ type: 'SOLID', color: rgb }];
+  var t = figma.createText(); t.fontName = ghostFont;
+  t.characters = name; t.fontSize = Math.max(1, 11 * s); t.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+  label.appendChild(t); cur.appendChild(label);
+  label.x = 12 * s; label.y = 16 * s;
+  ghostMark(label); ghostMark(t);
+  return cur;
+}
+
+// Keep cursors a constant on-screen size: rebuild at the new scale when zoom changed.
+async function ghostFit(key) {
+  var g = ghosts[key];
+  if (!g || g.fitting) return;
+  var want = ghostScaleNow();
+  if (Math.abs(want / g.scale - 1) <= 0.08) return;
+  g.fitting = true;
+  try {
+    var container = g.node.parent, x = g.node.x, y = g.node.y;
+    var old = g.node;
+    var fresh = await ghostBuild(container, g.name, g.color, want);
+    if (ghosts[key] !== g) {
+      // The agent's cursor was removed while we were rebuilding it: discard the new one too
+      try { fresh.remove(); } catch (e) {}
+      ghostCleanContainer(container);
+      return;
+    }
+    fresh.x = x; fresh.y = y;
+    g.node = fresh; g.scale = want;
+    try { old.remove(); } catch (e) {}
+  } finally { g.fitting = false; }
+}
+
+// Zoom can change while agents are idle or between updates, so refit all cursors periodically.
+setInterval(function() {
+  if (!ghostEnabled) return;
+  Object.keys(ghosts).forEach(function(k) { ghostFit(k).catch(function() {}); });
+}, 300);
+
+function ghostCleanContainer(container) {
+  try { if (container && !container.removed && container.children.length === 0 && container.getPluginData(GHOST_TAG) === 'container') container.remove(); } catch (e) {}
+}
+
+function ghostRemove(key) {
+  var g = ghosts[key];
+  if (!g) return;
+  if (g.timer) clearInterval(g.timer);
+  var container = null;
+  try { container = g.node.parent; if (!g.node.removed) g.node.remove(); } catch (e) {}
+  delete ghosts[key];
+  // Leave nothing behind: drop the container frame once its last cursor is gone
+  ghostCleanContainer(container);
+}
+
+function ghostRemoveAll() {
+  Object.keys(ghosts).forEach(ghostRemove);
+  // Also sweep empty containers left on the current page (e.g. after a crash)
+  try {
+    figma.currentPage.children.forEach(function(c) {
+      if (c.type === 'FRAME' && c.getPluginData(GHOST_TAG) === 'container') { ghostIds[c.id] = true; c.remove(); }
+    });
+  } catch (e) {}
+}
+
+// FOLLOW: glide the viewport to the followed agent's node (centre + zoom), easing each tick.
+var followKey = null, followTarget = null, followTimer = null;
+function followTo(box) {
+  var b = figma.viewport.bounds, z = figma.viewport.zoom;
+  var vw = b.width * z, vh = b.height * z;                       // viewport size in screen pixels (constant)
+  var rw = Math.max(box.width * 2.2, 900), rh = Math.max(box.height * 2.2, 600);
+  followTarget = {
+    cx: box.x + box.width / 2, cy: box.y + box.height / 2,
+    zoom: Math.max(0.01, Math.min(8, Math.min(vw / rw, vh / rh)))
+  };
+  if (followTimer) return;
+  followTimer = setInterval(function() {
+    if (!followTarget) { clearInterval(followTimer); followTimer = null; return; }
+    var c = figma.viewport.center, zz = figma.viewport.zoom, t = followTarget;
+    var nz = zz * Math.pow(t.zoom / zz, 0.25);
+    var dx = t.cx - c.x, dy = t.cy - c.y;
+    figma.viewport.zoom = nz;
+    figma.viewport.center = { x: c.x + dx * 0.25, y: c.y + dy * 0.25 };
+    if (Math.abs(dx) * nz < 1 && Math.abs(dy) * nz < 1 && Math.abs(t.zoom / zz - 1) < 0.01) { clearInterval(followTimer); followTimer = null; }
+  }, 60);
+}
+function followStop() {
+  followKey = null; followTarget = null;
+  if (followTimer) { clearInterval(followTimer); followTimer = null; }
+}
+
+var ghostQueue = {};
+function ghostEnqueue(key, fn) {
+  var p = (ghostQueue[key] || Promise.resolve()).then(fn).catch(function(e) { console.warn('🌉 [Desktop Bridge] ghost op failed:', e && e.message); });
+  ghostQueue[key] = p;
+  return p;
+}
+
+async function ghostUpdate(a) {
+  if (!a) return;
+  var page = figma.currentPage, tx, ty;
+  var target = a.nodeId ? await figma.getNodeByIdAsync(a.nodeId) : null;
+  if (target && !target.removed && target.absoluteBoundingBox) {
+    page = target; while (page && page.type !== 'PAGE') page = page.parent;
+    if (!page) return;
+    var box = target.absoluteBoundingBox;
+    tx = box.x + box.width; ty = box.y;
+    if (followKey && a.key === followKey) {
+      if (page !== figma.currentPage) { try { await figma.setCurrentPageAsync(page); } catch (e) {} }
+      followTo(box);
+    }
+  } else {
+    // No node known yet (command just arrived): show the agent at the viewport centre right away
+    var vc = figma.viewport.center;
+    tx = vc.x; ty = vc.y;
+    if (ghosts[a.key]) return; // keep existing position until a real node is known
+  }
+  if (!ghostEnabled || a.show === false) return;
+  var g = ghosts[a.key];
+  if (g && g.page !== page.id) { ghostRemove(a.key); g = null; }
+  if (!g) {
+    var container = await ghostContainerFor(page);
+    var sc = ghostScaleNow();
+    var node = await ghostBuild(container, a.name, a.color, sc);
+    if (!ghostEnabled) { try { node.remove(); } catch (e) {} return; }
+    node.x = tx; node.y = ty;
+    g = ghosts[a.key] = { node: node, tx: tx, ty: ty, timer: null, page: page.id, scale: sc, name: a.name, color: a.color, fitting: false };
+    return;
+  }
+  g.tx = tx; g.ty = ty;
+  await ghostFit(a.key);
+  if (!g.timer) {
+    // Ease toward the target ~12 times a second; stop when arrived
+    g.timer = setInterval(function() {
+      if (g.node.removed) { ghostRemove(a.key); return; }
+      var dx = g.tx - g.node.x, dy = g.ty - g.node.y;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) { g.node.x = g.tx; g.node.y = g.ty; clearInterval(g.timer); g.timer = null; return; }
+      g.node.x += dx * 0.35; g.node.y += dy * 0.35;
+    }, 80);
+  }
+}
+
+figma.on('close', function() { followStop(); ghostRemoveAll(); });
+// Remove leftovers from a previous crashed session (current page)
+try { ghostRemoveAll(); } catch (e) {}
+
 // Listen for requests from UI (e.g., component data requests, write operations)
 figma.ui.onmessage = async (msg) => {
+
+  // Custom FigShot: build screenshots + design system from captures
+  if (msg.type === 'FIGSHOT_BUILD') { await figshotBuild(msg); return; }
+  if (typeof msg.type === 'string' && msg.type.indexOf('TR_') === 0) { await trHandle(msg); return; }
+
+  // REPORT_RESOLVE - turn node ids into readable names for the agent report (read-only)
+  if (msg.type === 'REPORT_RESOLVE') {
+    var rnames = {};
+    try {
+      var rids = (msg.ids || []).slice(0, 150);
+      for (var ri = 0; ri < rids.length; ri++) {
+        try {
+          var rn = await figma.getNodeByIdAsync(rids[ri]);
+          rnames[rids[ri]] = rn ? (rn.name + ' (' + rn.type.toLowerCase() + ')') : rids[ri] + ' (deleted)';
+        } catch (e) { rnames[rids[ri]] = rids[ri]; }
+      }
+    } catch (e) {}
+    figma.ui.postMessage({ type: 'REPORT_NAMES', names: rnames, fileName: figma.root.name });
+    return;
+  }
+
+  // HISTORY_GET / HISTORY_SAVE - persist the agent history list across plugin sessions
+  if (msg.type === 'HISTORY_GET') {
+    try {
+      var hist = await figma.clientStorage.getAsync('agentHistory');       // legacy per-agent entries
+      var savedTasks = await figma.clientStorage.getAsync('agentTasks');
+      figma.ui.postMessage({ type: 'HISTORY_DATA', entries: Array.isArray(hist) ? hist : [], tasks: Array.isArray(savedTasks) ? savedTasks : [] });
+    } catch (e) { figma.ui.postMessage({ type: 'HISTORY_DATA', entries: [], tasks: [] }); }
+    return;
+  }
+  if (msg.type === 'HISTORY_SAVE') {
+    try {
+      if (Array.isArray(msg.tasks)) await figma.clientStorage.setAsync('agentTasks', msg.tasks.slice(0, 30));
+      else if (Array.isArray(msg.entries)) await figma.clientStorage.setAsync('agentHistory', msg.entries.slice(0, 50));
+    } catch (e) {}
+    return;
+  }
+
+  // FOLLOW_AGENT - viewport follows one agent (null stops following)
+  if (msg.type === 'FOLLOW_AGENT') {
+    if (msg.key) { followKey = msg.key; } else { followStop(); }
+    return;
+  }
+
+  // GHOST_CURSORS - toggle / update / remove ghost cursors (agent panel)
+  if (msg.type === 'GHOST_CURSORS') {
+    try {
+      if (msg.action === 'enable') { ghostEnabled = true; }
+      else if (msg.action === 'disable') { ghostEnabled = false; ghostRemoveAll(); }
+      else if (msg.action === 'update') { await ghostEnqueue(msg.agent.key, function() { return ghostUpdate(msg.agent); }); }
+      else if (msg.action === 'remove') { await ghostEnqueue(msg.key, function() { ghostRemove(msg.key); }); }
+    } catch (e) {
+      console.warn('🌉 [Desktop Bridge] GHOST_CURSORS failed:', e && e.message);
+    }
+    return;
+  }
+
+  // FOCUS_NODES - agent panel: jump the viewport to an agent's last-touched nodes (read-only)
+  if (msg.type === 'FOCUS_NODES') {
+    try {
+      var focusNodes = [];
+      for (var fi = 0; fi < msg.nodeIds.length; fi++) {
+        var fn = await figma.getNodeByIdAsync(msg.nodeIds[fi]);
+        if (fn && fn.type !== 'DOCUMENT' && fn.type !== 'PAGE') focusNodes.push(fn);
+      }
+      if (focusNodes.length) {
+        var fp = focusNodes[0];
+        while (fp && fp.type !== 'PAGE') fp = fp.parent;
+        if (fp && fp !== figma.currentPage) await figma.setCurrentPageAsync(fp);
+        figma.viewport.scrollAndZoomIntoView(focusNodes);
+      }
+    } catch (e) {
+      console.warn('🌉 [Desktop Bridge] FOCUS_NODES failed:', e && e.message);
+    }
+    return;
+  }
 
   // ============================================================================
   // EXECUTE_CODE - Arbitrary code execution (Power Tool)
@@ -7594,6 +7879,7 @@ figma.loadAllPagesAsync().then(function() {
 
     for (var i = 0; i < event.documentChanges.length; i++) {
       var change = event.documentChanges[i];
+      if (change.id && ghostIds[change.id]) continue; // ignore our own ghost cursor nodes
       if (change.type === 'STYLE_CREATE' || change.type === 'STYLE_DELETE' || change.type === 'STYLE_PROPERTY_CHANGE') {
         hasStyleChanges = true;
       } else if (change.type === 'CREATE' || change.type === 'DELETE' || change.type === 'PROPERTY_CHANGE') {
@@ -7712,3 +7998,1363 @@ console.log('🌉 [Desktop Bridge] Plugin will stay open until manually closed')
 
 // Plugin stays open - no auto-close
 // UI iframe remains accessible so the in-iframe WebSocket bridge client can keep relaying state to the MCP server
+
+// =====================================================================
+// Custom FigShot: build screenshots + design system from saved captures
+// (called from ui.html: FIGSHOT_BUILD)
+// =====================================================================
+var FS_WEIGHT_STYLE = { 100: 'Thin', 200: 'Extra Light', 300: 'Light', 400: 'Regular', 500: 'Medium', 600: 'Semi Bold', 700: 'Bold', 800: 'Extra Bold', 900: 'Black' };
+var FS_INK = { r: 0.09, g: 0.09, b: 0.11, a: 1 };
+var FS_MUTED = { r: 0.44, g: 0.44, b: 0.48, a: 1 };
+var FS_WHITE = { r: 1, g: 1, b: 1, a: 1 };
+
+function fsParseColor(str) {
+  if (!str) return null;
+  str = String(str).trim();
+  var m = str.match(/^#([0-9a-f]{3,8})$/i);
+  if (m) {
+    var h = m[1];
+    if (h.length === 3 || h.length === 4) h = h.split('').map(function (c) { return c + c; }).join('');
+    if (h.length === 6 || h.length === 8) {
+      return { r: parseInt(h.slice(0, 2), 16) / 255, g: parseInt(h.slice(2, 4), 16) / 255, b: parseInt(h.slice(4, 6), 16) / 255, a: h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1 };
+    }
+    return null;
+  }
+  m = str.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+%?))?\s*\)$/i);
+  if (m) {
+    var a = m[4] === undefined ? 1 : (String(m[4]).indexOf('%') >= 0 ? parseFloat(m[4]) / 100 : parseFloat(m[4]));
+    return { r: Math.min(1, m[1] / 255), g: Math.min(1, m[2] / 255), b: Math.min(1, m[3] / 255), a: isNaN(a) ? 1 : a };
+  }
+  return null;
+}
+function fsSolid(c) { return { type: 'SOLID', color: { r: c.r, g: c.g, b: c.b }, opacity: c.a === undefined ? 1 : c.a }; }
+function fsPx(v) { var n = parseFloat(v); return isNaN(n) ? 0 : n; }
+
+async function fsLoadFont(family, weight) {
+  var w = Math.round((parseInt(weight, 10) || 400) / 100) * 100;
+  var style = FS_WEIGHT_STYLE[w] || 'Regular';
+  var tries = [{ family: family, style: style }, { family: 'Inter', style: style }, { family: 'Inter', style: 'Regular' }];
+  for (var i = 0; i < tries.length; i++) {
+    try { await figma.loadFontAsync(tries[i]); return tries[i]; } catch (e) { /* try next */ }
+  }
+  return { family: 'Inter', style: 'Regular' };
+}
+async function fsText(str, size, weight, color, family) {
+  var f = await fsLoadFont(family || 'Inter', weight || 400);
+  var t = figma.createText();
+  t.fontName = f;
+  t.fontSize = size || 12;
+  t.characters = String(str === undefined || str === null ? '' : str);
+  t.fills = [fsSolid(color || FS_INK)];
+  return t;
+}
+function fsFrame(name, dir, gap, pad) {
+  var f = figma.createFrame();
+  f.name = name; f.fills = [];
+  f.layoutMode = dir;
+  f.itemSpacing = gap || 0;
+  f.paddingLeft = f.paddingRight = f.paddingTop = f.paddingBottom = pad || 0;
+  f.primaryAxisSizingMode = 'AUTO'; f.counterAxisSizingMode = 'AUTO';
+  return f;
+}
+function fsWrapRow(name, width, gap) {
+  var f = figma.createFrame();
+  f.name = name; f.fills = [];
+  f.layoutMode = 'HORIZONTAL'; f.layoutWrap = 'WRAP';
+  f.itemSpacing = gap; f.counterAxisSpacing = gap;
+  f.resize(width, 10);
+  f.primaryAxisSizingMode = 'FIXED'; f.counterAxisSizingMode = 'AUTO';
+  return f;
+}
+function fsParseShadow(v) {
+  var first = String(v).split(/,(?![^(]*\))/)[0];
+  if (/inset/i.test(first)) return null;
+  var col = first.match(/rgba?\([^)]+\)|#[0-9a-f]{3,8}/i);
+  var c = col ? fsParseColor(col[0]) : { r: 0, g: 0, b: 0, a: 0.25 };
+  if (!c) return null;
+  var nums = first.replace(col ? col[0] : '', '').match(/-?[\d.]+px|-?\b0\b/g) || [];
+  var n = nums.map(function (x) { return parseFloat(x); });
+  if (n.length < 2) return null;
+  return { type: 'DROP_SHADOW', color: { r: c.r, g: c.g, b: c.b, a: c.a }, offset: { x: n[0], y: n[1] }, radius: Math.max(0, n[2] || 0), spread: n[3] || 0, visible: true, blendMode: 'NORMAL' };
+}
+async function fsHeading(title, sub) {
+  var box = fsFrame('heading', 'VERTICAL', 4, 0);
+  box.appendChild(await fsText(title, 22, 700, FS_INK));
+  if (sub) box.appendChild(await fsText(sub, 13, 400, FS_MUTED));
+  return box;
+}
+
+// One Section per page: its screenshots stacked top to bottom.
+async function fsBuildPage(host, p, x, y) {
+  var section = figma.createSection(); fsCreated.push(section);
+  section.name = host + p.path;
+  section.x = x; section.y = y;
+  var dpr = p.dpr || 1;
+  var w = Math.round(p.pageWidth || 1440);
+  var stack = fsFrame('Screenshots', 'VERTICAL', 24, 0);
+  var n = p.slices.length;
+  for (var i = 0; i < n; i++) {
+    var s = p.slices[i];
+    var fr = figma.createFrame();
+    fr.name = 'screenshot ' + (i + 1) + '/' + n;
+    fr.resize(w, Math.max(1, Math.round(s.height / dpr)));
+    fr.fills = []; fr.clipsContent = true;
+    // Full resolution: each slice is made of tiles of at most 4096px (Figma's image limit).
+    for (var ti2 = 0; ti2 < s.tiles.length; ti2++) {
+      var tl = s.tiles[ti2];
+      var img = figma.createImage(tl.bytes);
+      var rc = figma.createRectangle();
+      rc.name = 'tile';
+      rc.resize(Math.max(0.01, tl.width / dpr), Math.max(0.01, tl.height / dpr));
+      rc.fills = [{ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' }];
+      fr.appendChild(rc);
+      rc.x = tl.x / dpr; rc.y = tl.y / dpr;
+    }
+    stack.appendChild(fr);
+  }
+  section.appendChild(stack);
+  stack.x = 60; stack.y = 100;
+  section.resizeWithoutConstraints(Math.max(200, stack.width + 120), Math.max(200, stack.height + 160));
+  return section;
+}
+
+// One Section per website: real variables + styles + a documentation frame with components.
+async function fsBuildDesign(host, d, pages, x, y, stats) {
+  var section = figma.createSection(); fsCreated.push(section);
+  section.name = host + ' — Design system';
+  section.x = x; section.y = y;
+
+  // ---- Variables (colors, CSS variables, spacing, radius)
+  try {
+    var col = figma.variables.createVariableCollection(host + ' · fiGapture'); fsCreated.push(col);
+    var mode = col.modes[0].modeId;
+    var addVar = function (name, type, val) {
+      try { var v = figma.variables.createVariable(name, col, type); v.setValueForMode(mode, val); stats.variables++; } catch (e) { /* duplicate name etc. */ }
+    };
+    (d.colors || []).slice(0, 24).forEach(function (c, i) {
+      var rgba = fsParseColor(c.value);
+      if (rgba) addVar('color/' + ('0' + (i + 1)).slice(-2) + '-' + String(c.value).replace('#', ''), 'COLOR', rgba);
+    });
+    var cssEntries = Object.keys(d.cssVariablesResolved || {}).slice(0, 120);
+    cssEntries.forEach(function (k) {
+      var v = String(d.cssVariablesResolved[k]).trim();
+      var name = 'css/' + k.replace(/^--/, '');
+      var c = fsParseColor(v);
+      if (c) addVar(name, 'COLOR', c);
+      else if (/^-?[\d.]+px$/.test(v)) addVar(name, 'FLOAT', parseFloat(v));
+    });
+    (d.spacing || []).slice().sort(function (a, b) { return b.count - a.count; }).slice(0, 12)
+      .sort(function (a, b) { return fsPx(a.value) - fsPx(b.value); })
+      .forEach(function (s) { addVar('space/' + fsPx(s.value), 'FLOAT', fsPx(s.value)); });
+    (d.radii || []).slice(0, 8).forEach(function (r) { if (/px$/.test(r.value)) addVar('radius/' + fsPx(r.value), 'FLOAT', fsPx(r.value)); });
+  } catch (e) { /* variables unavailable in this file type */ }
+
+  // ---- Text styles
+  var styleByIdx = {};
+  var typo = (d.typography || []).slice(0, 10);
+  for (var ti = 0; ti < typo.length; ti++) {
+    try {
+      var t = typo[ti];
+      var f = await fsLoadFont(t.family, t.weight);
+      var st = figma.createTextStyle(); fsCreated.push(st);
+      st.name = 'text/' + ('0' + (ti + 1)).slice(-2) + ' ' + t.family + ' ' + t.size;
+      st.fontName = f; st.fontSize = fsPx(t.size) || 14;
+      var lh = fsPx(t.lineHeight); if (lh > 0) st.lineHeight = { value: lh, unit: 'PIXELS' };
+      var ls = fsPx(t.letterSpacing); if (ls !== 0) st.letterSpacing = { value: ls, unit: 'PIXELS' };
+      styleByIdx[ti] = st; stats.textStyles++;
+    } catch (e) { /* skip */ }
+  }
+  // ---- Effect styles (shadows)
+  var shadowStyles = [];
+  (d.shadows || []).slice(0, 8).forEach(function (s, i) {
+    try {
+      var eff = fsParseShadow(s.value); if (!eff) return;
+      var es = figma.createEffectStyle(); fsCreated.push(es); es.name = 'shadow/' + ('0' + (i + 1)).slice(-2); es.effects = [eff];
+      shadowStyles.push({ eff: eff, value: s.value, count: s.count }); stats.effectStyles++;
+    } catch (e) { /* skip */ }
+  });
+
+  // ---- Documentation frame
+  var W = 1200, INNER = W - 96;
+  var doc = fsFrame('Design system', 'VERTICAL', 40, 48);
+  doc.fills = [fsSolid(FS_WHITE)];
+  doc.resize(W, 100); doc.primaryAxisSizingMode = 'AUTO'; doc.counterAxisSizingMode = 'FIXED';
+  doc.appendChild(await fsText('Design system — ' + host, 34, 700, FS_INK));
+  doc.appendChild(await fsText('Merged from ' + pages.length + ' captured page(s). Extracted from computed styles; hover/focus states are not captured.', 13, 400, FS_MUTED));
+  var pageList = pages.map(function (p) { return p.path + (p.title ? ' — ' + p.title : ''); }).join('\n').slice(0, 1500);
+  if (pageList) { var pl = await fsText(pageList, 12, 400, { r: 0.25, g: 0.25, b: 0.28, a: 1 }); doc.appendChild(pl); }
+
+  // Colors
+  if ((d.colors || []).length) {
+    var cs = fsFrame('Colors', 'VERTICAL', 16, 0);
+    cs.appendChild(await fsHeading('Colors', d.colors.length + ' unique colors, most used first'));
+    var grid = fsWrapRow('swatches', INNER, 16);
+    for (var ci = 0; ci < Math.min(48, d.colors.length); ci++) {
+      var c = d.colors[ci], rgba = fsParseColor(c.value); if (!rgba) continue;
+      var sw = fsFrame('swatch ' + c.value, 'VERTICAL', 6, 0);
+      var rect = figma.createRectangle(); rect.name = 'color'; rect.resize(130, 64); rect.cornerRadius = 8;
+      rect.fills = [fsSolid(rgba)]; rect.strokes = [fsSolid({ r: 0.89, g: 0.89, b: 0.91, a: 1 })]; rect.strokeWeight = 1;
+      sw.appendChild(rect);
+      sw.appendChild(await fsText(String(c.value).toUpperCase(), 13, 600, FS_INK));
+      sw.appendChild(await fsText((c.roles || []).join(', ') + ' · ×' + c.count, 11, 400, FS_MUTED));
+      grid.appendChild(sw);
+    }
+    cs.appendChild(grid); doc.appendChild(cs);
+  }
+  // Typography
+  if (typo.length) {
+    var ty = fsFrame('Typography', 'VERTICAL', 14, 0);
+    ty.appendChild(await fsHeading('Typography', (d.typography || []).length + ' text styles'));
+    for (var yi = 0; yi < Math.min(16, (d.typography || []).length); yi++) {
+      var tt = d.typography[yi];
+      var row = fsFrame('type ' + (yi + 1), 'VERTICAL', 4, 0);
+      var sample = await fsText('The quick brown fox jumps over the lazy dog', Math.min(64, fsPx(tt.size) || 14), tt.weight, FS_INK, tt.family);
+      if (styleByIdx[yi]) { try { await sample.setTextStyleIdAsync(styleByIdx[yi].id); } catch (e) { /* keep manual style */ } }
+      row.appendChild(sample);
+      row.appendChild(await fsText(tt.family + ' · ' + tt.size + ' / ' + tt.lineHeight + ' · weight ' + tt.weight + ' · ×' + tt.count, 11, 400, FS_MUTED));
+      ty.appendChild(row);
+    }
+    doc.appendChild(ty);
+  }
+  // Spacing
+  if ((d.spacing || []).length) {
+    var sp = fsFrame('Spacing', 'VERTICAL', 8, 0);
+    sp.appendChild(await fsHeading('Spacing', 'Most used padding / margin / gap values'));
+    var spList = d.spacing.slice().sort(function (a, b) { return b.count - a.count; }).slice(0, 16).sort(function (a, b) { return fsPx(a.value) - fsPx(b.value); });
+    for (var si = 0; si < spList.length; si++) {
+      var r2 = fsFrame('space ' + spList[si].value, 'HORIZONTAL', 12, 0); r2.counterAxisAlignItems = 'CENTER';
+      var lbl = await fsText(spList[si].value, 12, 600, FS_INK); lbl.resize(70, lbl.height); lbl.textAutoResize = 'HEIGHT';
+      var bar = figma.createRectangle(); bar.resize(Math.max(2, Math.min(400, fsPx(spList[si].value))), 12); bar.cornerRadius = 2; bar.fills = [fsSolid({ r: 0.39, g: 0.4, b: 0.95, a: 1 })];
+      r2.appendChild(lbl); r2.appendChild(bar); r2.appendChild(await fsText('×' + spList[si].count, 11, 400, FS_MUTED));
+      sp.appendChild(r2);
+    }
+    doc.appendChild(sp);
+  }
+  // Radius + shadows
+  if ((d.radii || []).length) {
+    var rd = fsFrame('Border radius', 'VERTICAL', 16, 0);
+    rd.appendChild(await fsHeading('Border radius'));
+    var rg = fsWrapRow('radii', INNER, 20);
+    for (var ri = 0; ri < Math.min(12, d.radii.length); ri++) {
+      var rc = fsFrame('radius ' + d.radii[ri].value, 'VERTICAL', 8, 0);
+      var rr = figma.createRectangle(); rr.resize(72, 72); rr.cornerRadius = /%/.test(d.radii[ri].value) ? 36 : Math.min(36, fsPx(d.radii[ri].value));
+      rr.fills = [fsSolid({ r: 0.96, g: 0.96, b: 0.97, a: 1 })]; rr.strokes = [fsSolid({ r: 0.83, g: 0.83, b: 0.85, a: 1 })]; rr.strokeWeight = 1;
+      rc.appendChild(rr); rc.appendChild(await fsText(String(d.radii[ri].value) + ' · ×' + d.radii[ri].count, 11, 400, FS_MUTED));
+      rg.appendChild(rc);
+    }
+    rd.appendChild(rg); doc.appendChild(rd);
+  }
+  if (shadowStyles.length) {
+    var sh = fsFrame('Shadows', 'VERTICAL', 16, 0);
+    sh.appendChild(await fsHeading('Shadows'));
+    var shg = fsWrapRow('shadows', INNER, 28);
+    for (var hi = 0; hi < shadowStyles.length; hi++) {
+      var hc = fsFrame('shadow ' + (hi + 1), 'VERTICAL', 10, 0);
+      var hr = figma.createRectangle(); hr.resize(120, 80); hr.cornerRadius = 8; hr.fills = [fsSolid(FS_WHITE)]; hr.effects = [shadowStyles[hi].eff];
+      hc.appendChild(hr); hc.appendChild(await fsText(String(shadowStyles[hi].value).slice(0, 48) + ' · ×' + shadowStyles[hi].count, 11, 400, FS_MUTED));
+      shg.appendChild(hc);
+    }
+    sh.appendChild(shg); doc.appendChild(sh);
+  }
+  // Components (native Figma components built from the captured computed styles)
+  var comps = d.components || [];
+  if (comps.length) {
+    var cp = fsFrame('Components', 'VERTICAL', 24, 0);
+    cp.appendChild(await fsHeading('Components', 'Distinct style variants found on the pages — built as real components'));
+    var byType = {}; var order = [];
+    comps.forEach(function (c) { if (!byType[c.type]) { byType[c.type] = []; order.push(c.type); } byType[c.type].push(c); });
+    var budget = 48;
+    for (var oi = 0; oi < order.length && budget > 0; oi++) {
+      var type = order[oi], items = byType[type];
+      var grp = fsFrame(type, 'VERTICAL', 10, 0);
+      grp.appendChild(await fsText(type + ' — ' + items.length + ' variant(s)', 16, 600, FS_INK));
+      var crow = fsWrapRow(type + ' variants', INNER, 20);
+      for (var ji = 0; ji < Math.min(8, items.length) && budget > 0; ji++, budget--) {
+        try {
+          var it = items[ji], stl = it.sample.styles || {};
+          var comp = figma.createComponent();
+          comp.name = type + '/' + (ji + 1);
+          comp.layoutMode = 'HORIZONTAL'; comp.primaryAxisSizingMode = 'AUTO'; comp.counterAxisSizingMode = 'AUTO';
+          comp.primaryAxisAlignItems = 'CENTER'; comp.counterAxisAlignItems = 'CENTER';
+          comp.paddingTop = fsPx(stl.paddingTop); comp.paddingBottom = fsPx(stl.paddingBottom); comp.paddingLeft = fsPx(stl.paddingLeft); comp.paddingRight = fsPx(stl.paddingRight);
+          comp.cornerRadius = /%/.test(stl.borderTopLeftRadius || '') ? 999 : Math.min(999, fsPx(stl.borderTopLeftRadius));
+          var bg = fsParseColor(stl.backgroundColor); comp.fills = bg ? [fsSolid(bg)] : [];
+          if (fsPx(stl.borderTopWidth) > 0 && stl.borderTopStyle !== 'none') { var bc = fsParseColor(stl.borderTopColor); if (bc) { comp.strokes = [fsSolid(bc)]; comp.strokeWeight = fsPx(stl.borderTopWidth); } }
+          var tc = fsParseColor(stl.color) || FS_INK;
+          var label = (it.sample.text || type).slice(0, 40);
+          comp.appendChild(await fsText(label, fsPx(stl.fontSize) || 14, stl.fontWeight, tc, String(stl.fontFamily || 'Inter').split(',')[0].replace(/["']/g, '').trim()));
+          var wrap = fsFrame(type + ' ' + (ji + 1), 'VERTICAL', 6, 12);
+          wrap.fills = [fsSolid({ r: 0.98, g: 0.98, b: 0.98, a: 1 })]; wrap.cornerRadius = 10; wrap.strokes = [fsSolid({ r: 0.89, g: 0.89, b: 0.91, a: 1 })]; wrap.strokeWeight = 1;
+          wrap.appendChild(comp);
+          wrap.appendChild(await fsText(it.sample.size.width + '×' + it.sample.size.height + ' · pad ' + stl.paddingTop + ' ' + stl.paddingRight + ' · radius ' + stl.borderTopLeftRadius + ' · ×' + it.count, 10, 400, FS_MUTED));
+          crow.appendChild(wrap); stats.components++;
+        } catch (e) { /* skip this variant */ }
+      }
+      grp.appendChild(crow); cp.appendChild(grp);
+    }
+    doc.appendChild(cp);
+  }
+  // Icons
+  if ((d.icons || []).length) {
+    var ic = fsFrame('Icons', 'VERTICAL', 16, 0);
+    ic.appendChild(await fsHeading('Icons', d.icons.length + ' unique inline SVG icons'));
+    var ig = fsWrapRow('icons', INNER, 16);
+    for (var ki = 0; ki < Math.min(48, d.icons.length); ki++) {
+      try { var node = figma.createNodeFromSvg(d.icons[ki].html); node.name = 'icon ' + (ki + 1); ig.appendChild(node); } catch (e) { /* invalid svg */ }
+    }
+    ic.appendChild(ig); doc.appendChild(ic);
+  }
+  section.appendChild(doc);
+  doc.x = 60; doc.y = 100;
+  section.resizeWithoutConstraints(doc.width + 120, doc.height + 160);
+  return section;
+}
+
+var fsCreated = [];
+async function figshotBuild(msg) {
+  fsCreated = [];
+  var stats = { pages: 0, designs: 0, variables: 0, textStyles: 0, effectStyles: 0, components: 0 };
+  try {
+    await Promise.all(['Regular', 'Medium', 'Semi Bold', 'Bold'].map(function (s) { return figma.loadFontAsync({ family: 'Inter', style: s }); }));
+    var page = figma.currentPage;
+    var x0 = 0, y0 = 0;
+    if (page.children.length) {
+      var maxR = -Infinity, minY = Infinity;
+      page.children.forEach(function (n) { maxR = Math.max(maxR, n.x + n.width); minY = Math.min(minY, n.y); });
+      x0 = maxR + 400; y0 = minY;
+    }
+    var made = [], rowY = y0, layerSection = null;
+    if (msg.hasLayers) {
+      layerSection = figma.createSection(); fsCreated.push(layerSection);
+      layerSection.name = 'Figma layers — paste here with Cmd+V';
+      layerSection.x = x0; layerSection.y = rowY;
+      layerSection.resizeWithoutConstraints(1600, 1200);
+      made.push(layerSection);
+      rowY += 1200 + 300;
+    }
+    for (var si = 0; si < msg.sites.length; si++) {
+      var site = msg.sites[si], cx = x0, rowH = 0;
+      for (var pi = 0; pi < site.pages.length; pi++) {
+        var p = site.pages[pi];
+        if (!p.slices || !p.slices.length) continue;
+        var sec = await fsBuildPage(site.host, p, cx, rowY);
+        made.push(sec); stats.pages++;
+        cx += sec.width + 200; rowH = Math.max(rowH, sec.height);
+      }
+      if (site.design) {
+        var dsec = await fsBuildDesign(site.host, site.design, site.designPages || [], cx, rowY, stats);
+        made.push(dsec); stats.designs++;
+        rowH = Math.max(rowH, dsec.height);
+      }
+      rowY += rowH + 300;
+    }
+    if (made.length) figma.viewport.scrollAndZoomIntoView(made);
+    if (layerSection) figma.currentPage.selection = [layerSection];
+    figma.ui.postMessage({ type: 'FIGSHOT_BUILD_RESULT', ok: true, stats: stats, selectedLayers: !!layerSection });
+  } catch (e) {
+    // Undo a half-finished build so no empty Sections or stray styles are left behind.
+    fsCreated.forEach(function (n) { try { n.remove(); } catch (err) { /* already gone */ } });
+    figma.ui.postMessage({ type: 'FIGSHOT_BUILD_RESULT', ok: false, error: String(e && e.message || e), stats: stats });
+  }
+}
+
+// =====================================================================
+// Page Transfer (Custom): move pages from this file to another file.
+//   A) rebuild: serialize pages here, rebuild them in the destination file,
+//      re-linking instances to the published design-system library.
+//   B) native: select a page's contents so you can copy/paste natively.
+// The plugin API cannot touch two files at once, so the Bridge UI relays the
+// data through the local MCP server, which also writes the on-disk backup.
+// =====================================================================
+var trAckResolve = null;
+var trImageAckResolve = null;
+var trCancelled = false;
+var trImageMap = {};      // source image hash -> created image hash (per destination run)
+var trLibCache = {};      // library component key -> ComponentNode | null
+var trGlobalVarCache = {};
+var trGlobalStyleCache = {};
+
+function withTimeout(promise, ms, desc) {
+  return new Promise(function (resolve, reject) {
+    var timer = setTimeout(function () {
+      reject(new Error('Timeout after ' + ms + 'ms for ' + (desc || 'operation')));
+    }, ms);
+    promise.then(function (res) {
+      clearTimeout(timer);
+      resolve(res);
+    }, function (err) {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+function trYield() {
+  if (trCancelled) throw new Error('Cancelled');
+  return new Promise(function (r) { setTimeout(r, 0); });
+}
+function trMixed(v) { return v === figma.mixed; }
+function trClone(v) {
+  if (v === null || typeof v !== 'object') return v;
+  if (Array.isArray(v)) {
+    var arr = new Array(v.length);
+    for (var i = 0; i < v.length; i++) arr[i] = trClone(v[i]);
+    return arr;
+  }
+  var obj = {};
+  var keys = Object.keys(v);
+  for (var k = 0; k < keys.length; k++) {
+    var key = keys[k];
+    obj[key] = trClone(v[key]);
+  }
+  return obj;
+}
+
+// ---------- page list ----------
+// Every page is transferable: no page is locked or auto-excluded.
+function trIsDivider(n) { return /^[\s\-–—_=*·•.~]*$/.test(String(n || '')); }
+async function trListPages() {
+  var out = [];
+  figma.root.children.forEach(function (p) {
+    var itemCount = 0;
+    try { itemCount = p.children ? p.children.length : 0; } catch (e) {}
+    out.push({ id: p.id, name: p.name, itemCount: itemCount, excluded: false, reason: '', divider: trIsDivider(p.name) });
+  });
+  return { pages: out, words: [] };
+}
+
+// ---------- serializer ----------
+async function trVarKey(id, ctx) {
+  if (!id) return null;
+  if (trGlobalVarCache[id] !== undefined) return trGlobalVarCache[id];
+  if (ctx && ctx.varKeys && ctx.varKeys[id] !== undefined) return ctx.varKeys[id];
+  var k = null;
+  try { var v = await figma.variables.getVariableByIdAsync(id); k = v ? v.key : null; } catch (e) {}
+  trGlobalVarCache[id] = k;
+  if (ctx && ctx.varKeys) ctx.varKeys[id] = k;
+  return k;
+}
+async function trStyleKey(id, ctx) {
+  if (!id || trMixed(id)) return null;
+  if (trGlobalStyleCache[id] !== undefined) return trGlobalStyleCache[id];
+  if (ctx && ctx.styleKeys && ctx.styleKeys[id] !== undefined) return ctx.styleKeys[id];
+  var k = null;
+  try { var s = await figma.getStyleByIdAsync(id); k = s ? s.key : null; } catch (e) {}
+  trGlobalStyleCache[id] = k;
+  if (ctx && ctx.styleKeys) ctx.styleKeys[id] = k;
+  return k;
+}
+async function trPaints(arr, ctx) {
+  if (!arr || trMixed(arr) || !arr.length) return null;
+  var out = [];
+  for (var i = 0; i < arr.length; i++) {
+    var p = arr[i];
+    if (!p) continue;
+    var o = { type: p.type };
+    if (p.visible === false) o.visible = false;
+    if (p.opacity != null && p.opacity !== 1) o.opacity = p.opacity;
+    if (p.blendMode && p.blendMode !== 'NORMAL') o.blendMode = p.blendMode;
+    if (p.type === 'SOLID') {
+      o.color = { r: p.color.r, g: p.color.g, b: p.color.b };
+      if (p.boundVariables && p.boundVariables.color) o.bvColor = await trVarKey(p.boundVariables.color.id, ctx);
+    } else if (p.type.indexOf('GRADIENT') === 0) {
+      o.gradientStops = p.gradientStops.map(function (s) { return { position: s.position, color: { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a } }; });
+      o.gradientTransform = p.gradientTransform;
+    } else if (p.type === 'IMAGE') {
+      o.scaleMode = p.scaleMode; o.imageHash = p.imageHash; o.rotation = p.rotation; o.scalingFactor = p.scalingFactor; o.imageTransform = p.imageTransform; o.filters = p.filters;
+      if (p.imageHash) ctx.images[p.imageHash] = 1;
+    } else { continue; }
+    out.push(o);
+  }
+  return out.length ? out : null;
+}
+function trEffects(arr) {
+  if (!arr || trMixed(arr) || !arr.length) return null;
+  var out = [];
+  for (var i = 0; i < arr.length; i++) {
+    var e = arr[i];
+    if (!e || e.visible === false) continue;
+    var o = {};
+    var keys = Object.keys(e);
+    for (var k = 0; k < keys.length; k++) {
+      var key = keys[k];
+      if (key !== 'boundVariables') o[key] = e[key];
+    }
+    out.push(o);
+  }
+  return out.length ? out : null;
+}
+var TR_PLAIN = ['visible', 'locked', 'opacity', 'blendMode', 'isMask', 'maskType', 'constraints', 'layoutPositioning', 'layoutAlign', 'layoutGrow', 'minWidth', 'maxWidth', 'minHeight', 'maxHeight',
+  'strokeWeight', 'strokeAlign', 'strokeCap', 'strokeJoin', 'strokeMiterLimit', 'dashPattern', 'strokeTopWeight', 'strokeRightWeight', 'strokeBottomWeight', 'strokeLeftWeight',
+  'cornerRadius', 'topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius', 'cornerSmoothing', 'clipsContent',
+  'layoutMode', 'primaryAxisSizingMode', 'counterAxisSizingMode', 'primaryAxisAlignItems', 'counterAxisAlignItems', 'counterAxisAlignContent', 'paddingLeft', 'paddingRight', 'paddingTop', 'paddingBottom',
+  'itemSpacing', 'counterAxisSpacing', 'layoutWrap', 'itemReverseZIndex', 'strokesIncludedInLayout', 'layoutSizingHorizontal', 'layoutSizingVertical', 'pointCount', 'innerRadius', 'arcData', 'booleanOperation', 'rotation'];
+var TR_BV_FIELDS = ['cornerRadius', 'topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius', 'itemSpacing', 'counterAxisSpacing', 'paddingLeft', 'paddingRight', 'paddingTop', 'paddingBottom', 'strokeWeight', 'strokeTopWeight', 'strokeRightWeight', 'strokeBottomWeight', 'strokeLeftWeight', 'opacity', 'width', 'height', 'minWidth', 'maxWidth', 'minHeight', 'maxHeight', 'fontSize', 'lineHeight', 'letterSpacing', 'visible', 'characters'];
+
+function isDefaultPlain(k, v, node) {
+  if (v === undefined || v === null || trMixed(v)) return true;
+  if (k === 'visible' && v === true) return true;
+  if (k === 'locked' && v === false) return true;
+  if (k === 'opacity' && (v === 1 || Math.abs(v - 1) < 0.0001)) return true;
+  if (k === 'blendMode' && (v === 'PASS_THROUGH' || v === 'NORMAL')) return true;
+  if (k === 'isMask' && v === false) return true;
+  if (k === 'maskType' && v === 'ALPHA') return true;
+  if (k === 'layoutMode' && v === 'NONE') return true;
+  if (k === 'layoutPositioning' && v === 'AUTO') return true;
+  if (k === 'layoutGrow' && v === 0) return true;
+  if (k === 'layoutAlign' && v === 'INHERIT') return true;
+  if (k === 'rotation' && Math.abs(v) < 0.001) return true;
+  if (k === 'cornerSmoothing' && v === 0) return true;
+  if (k === 'clipsContent' && v === false) return true;
+  if (k === 'strokeWeight' && v === 1 && (!node.strokes || !node.strokes.length)) return true;
+  if ((k === 'paddingLeft' || k === 'paddingRight' || k === 'paddingTop' || k === 'paddingBottom' || k === 'itemSpacing' || k === 'counterAxisSpacing') && v === 0) return true;
+  if ((k === 'cornerRadius' || k === 'topLeftRadius' || k === 'topRightRadius' || k === 'bottomLeftRadius' || k === 'bottomRightRadius') && v === 0) return true;
+  if ((k === 'strokeTopWeight' || k === 'strokeRightWeight' || k === 'strokeBottomWeight' || k === 'strokeLeftWeight') && v === 0) return true;
+  return false;
+}
+
+async function trSer(node, ctx, isInsideInstance) {
+  if (trCancelled) throw new Error('Cancelled');
+  ctx.count++;
+  if (ctx.count % 100 === 0) await trYield();
+  var t = node.type;
+  var o = { type: t, name: node.name, id: node.id };
+  
+  for (var pi = 0; pi < TR_PLAIN.length; pi++) {
+    var k = TR_PLAIN[pi];
+    if (isInsideInstance && (k === 'constraints' || k === 'layoutAlign' || k === 'layoutGrow' || k === 'layoutMode' || k.indexOf('padding') === 0 || k.indexOf('stroke') === 0 || k.indexOf('Radius') >= 0)) {
+      continue;
+    }
+    try {
+      var v = node[k];
+      if (!isDefaultPlain(k, v, node)) {
+        o[k] = (typeof v === 'object' && v !== null) ? trClone(v) : v;
+      }
+    } catch (e) {}
+  }
+  
+  try { o.w = node.width; o.h = node.height; if (!isInsideInstance) o.t = node.relativeTransform; } catch (e) {}
+  if ('fills' in node && node.fills && node.fills.length) {
+    var fls = await trPaints(node.fills, ctx);
+    if (fls) o.fills = fls;
+  }
+  
+  if (!isInsideInstance) {
+    if ('strokes' in node && node.strokes && node.strokes.length) {
+      var stks = await trPaints(node.strokes, ctx);
+      if (stks) o.strokes = stks;
+    }
+    if ('effects' in node && node.effects && node.effects.length) {
+      var effs = trEffects(node.effects);
+      if (effs) o.effects = effs;
+    }
+    if ('layoutGrids' in node && node.layoutGrids && node.layoutGrids.length) {
+      try { o.layoutGrids = trClone(node.layoutGrids); } catch (e) {}
+    }
+    try {
+      if ('fillStyleId' in node) o.fillStyleKey = await trStyleKey(node.fillStyleId, ctx);
+      if ('strokeStyleId' in node) o.strokeStyleKey = await trStyleKey(node.strokeStyleId, ctx);
+      if ('effectStyleId' in node) o.effectStyleKey = await trStyleKey(node.effectStyleId, ctx);
+      if ('gridStyleId' in node) o.gridStyleKey = await trStyleKey(node.gridStyleId, ctx);
+    } catch (e) {}
+    if (node.boundVariables) {
+      var bvObj = {};
+      var bKeys = Object.keys(node.boundVariables);
+      for (var bi = 0; bi < bKeys.length; bi++) {
+        var f = bKeys[bi], a = node.boundVariables[f];
+        if (a && a.id) {
+          var vk = await trVarKey(a.id, ctx);
+          if (vk) bvObj[f] = vk;
+        }
+      }
+      if (Object.keys(bvObj).length) o.bv = bvObj;
+    }
+  } else {
+    try {
+      if ('fillStyleId' in node && node.fillStyleId) o.fillStyleKey = await trStyleKey(node.fillStyleId, ctx);
+    } catch (e) {}
+  }
+  
+  if (!isInsideInstance && (t === 'VECTOR' || t === 'LINE' || t === 'STAR' || t === 'POLYGON' || t === 'ELLIPSE' || t === 'RECTANGLE')) {
+    if (t === 'VECTOR') {
+      try { if (node.vectorPaths && node.vectorPaths.length) o.vectorPaths = trClone(node.vectorPaths); } catch (e) {}
+    }
+  }
+  if (t === 'TEXT') {
+    o.characters = node.characters;
+    ['textAlignHorizontal', 'textAlignVertical', 'textAutoResize', 'paragraphSpacing', 'paragraphIndent', 'leadingTrim'].forEach(function (k) {
+      try { var v = node[k]; if (v !== undefined && !trMixed(v)) o[k] = v; } catch (e) {}
+    });
+    try {
+      var segs = node.getStyledTextSegments(['fontName', 'fontSize', 'textDecoration', 'textCase', 'lineHeight', 'letterSpacing', 'fills', 'textStyleId', 'hyperlink']);
+      o.segs = [];
+      for (var si = 0; si < segs.length; si++) {
+        var sg = segs[si];
+        var segObj = { s: sg.start, e: sg.end, fontName: sg.fontName, fontSize: sg.fontSize };
+        if (sg.textDecoration && sg.textDecoration !== 'NONE') segObj.textDecoration = sg.textDecoration;
+        if (sg.textCase && sg.textCase !== 'ORIGINAL') segObj.textCase = sg.textCase;
+        if (sg.lineHeight) segObj.lineHeight = sg.lineHeight;
+        if (sg.letterSpacing) segObj.letterSpacing = sg.letterSpacing;
+        if (sg.hyperlink) segObj.hyperlink = sg.hyperlink;
+        if (sg.fills && sg.fills.length) segObj.fills = await trPaints(sg.fills, ctx);
+        if (sg.textStyleId) segObj.styleKey = await trStyleKey(sg.textStyleId, ctx);
+        o.segs.push(segObj);
+        if (sg.fontName) ctx.fonts[sg.fontName.family + '|' + sg.fontName.style] = sg.fontName;
+      }
+    } catch (e) { o.segs = []; }
+  }
+  if (t === 'INSTANCE') {
+    try {
+      var mc = await node.getMainComponentAsync();
+      if (mc) {
+        o.mainKey = mc.key;
+        o.mainId = mc.id;
+        o.mainName = mc.name;
+        var par = mc.parent;
+        o.mainSet = par && par.type === 'COMPONENT_SET' ? par.name : null;
+      }
+      var cp = node.componentProperties || {};
+      o.props = {};
+      Object.keys(cp).forEach(function (k) {
+        var d = cp[k];
+        if (d && (d.type === 'TEXT' || d.type === 'BOOLEAN')) o.props[k] = d.value;
+      });
+    } catch (e) {}
+  }
+  if (t === 'COMPONENT_SET') { try { o.compDefs = null; } catch (e) {} }
+  if ('children' in node && t !== 'BOOLEAN_OPERATION' || t === 'BOOLEAN_OPERATION') {
+    o.children = [];
+    var kids = node.children || [];
+    for (var ci = 0; ci < kids.length; ci++) {
+      if (trCancelled) throw new Error('Cancelled');
+      var ct = kids[ci].type;
+      if (ct === 'SLICE' || ct === 'STICKY' || ct === 'SHAPE_WITH_TEXT' || ct === 'CONNECTOR' || ct === 'CODE_BLOCK' || ct === 'STAMP' || ct === 'WIDGET' || ct === 'EMBED' || ct === 'LINK_UNFURL' || ct === 'MEDIA' || ct === 'HIGHLIGHT' || ct === 'WASHI_TAPE' || ct === 'TABLE') {
+        ctx.skipped++;
+        continue;
+      }
+      var childRes = await trSer(kids[ci], ctx, isInsideInstance || t === 'INSTANCE');
+      if (childRes) o.children.push(childRes);
+    }
+  }
+  return o;
+}
+
+async function trExport(msg) {
+  trCancelled = false;
+  var exportedImages = {}; // Deduplicate images across the entire export run
+  var ids = msg.pageIds || [];
+  for (var i = 0; i < ids.length; i++) {
+    if (trCancelled) {
+      figma.ui.postMessage({ type: 'TR_EXPORT_DONE', jobId: msg.jobId, cancelled: true });
+      return;
+    }
+    var page = await figma.getNodeByIdAsync(ids[i]);
+    if (!page || page.type !== 'PAGE') {
+      figma.ui.postMessage({ type: 'TR_EXPORT_ERROR', jobId: msg.jobId, index: i, error: 'Page not found' });
+      return;
+    }
+    figma.ui.postMessage({ type: 'TR_PROGRESS', jobId: msg.jobId, phase: 'export', index: i, name: page.name, total: ids.length });
+    try {
+      await page.loadAsync();
+      
+      // 1. Gather all valid top-level nodes on this page
+      var topChildren = [];
+      for (var k = 0; k < page.children.length; k++) {
+        var ct = page.children[k].type;
+        if (ct === 'SLICE' || ct === 'STICKY' || ct === 'CONNECTOR' || ct === 'SHAPE_WITH_TEXT' || ct === 'CODE_BLOCK' || ct === 'WIDGET' || ct === 'EMBED' || ct === 'TABLE') continue;
+        topChildren.push(page.children[k]);
+      }
+      
+      // 2. Memory-Safe Streaming Chunks:
+      // In Figma's 32-bit WebAssembly environment, allocating hundreds of megabytes causes
+      // instant OOM crashes ("Reason: crashed").
+      // To guarantee rock-solid stability and zero memory bloat:
+      // - Every top-level frame/component/section/group is streamed in its OWN chunk.
+      // - Small loose shapes (rectangles, text, etc.) are batched up to 10 per chunk.
+      var chunks = [];
+      var curChunk = [];
+      for (var ti = 0; ti < topChildren.length; ti++) {
+        var tnode = topChildren[ti];
+        var isContainer = tnode.type === 'FRAME' || tnode.type === 'SECTION' || tnode.type === 'GROUP' || tnode.type === 'COMPONENT' || tnode.type === 'COMPONENT_SET';
+        if (isContainer) {
+          if (curChunk.length > 0) {
+            chunks.push(curChunk);
+            curChunk = [];
+          }
+          chunks.push([tnode]);
+        } else {
+          curChunk.push(tnode);
+          if (curChunk.length >= 10) {
+            chunks.push(curChunk);
+            curChunk = [];
+          }
+        }
+      }
+      if (curChunk.length > 0) chunks.push(curChunk);
+      
+      var bg = null;
+      try { if (page.backgrounds && page.backgrounds.length) bg = trClone(page.backgrounds); } catch (e) {}
+      
+      // 3. Send page start manifest
+      await new Promise(function (resolve) {
+        var timer = setTimeout(function () { if (trAckResolve) { trAckResolve = null; resolve(); } }, 10000);
+        trAckResolve = function () { clearTimeout(timer); trAckResolve = null; resolve(); };
+        figma.ui.postMessage({
+          type: 'TR_PAGE_START',
+          jobId: msg.jobId,
+          pageIndex: i,
+          name: page.name,
+          backgrounds: bg,
+          totalChunks: chunks.length,
+          totalItems: topChildren.length
+        });
+      });
+      
+      // 4. Stream each chunk one by one
+      for (var c = 0; c < chunks.length; c++) {
+        if (trCancelled) throw new Error('Cancelled');
+        
+        // Fault-tolerance resume: skip chunk if already saved on server
+        if (msg.resumeChunks && msg.resumeChunks[i + '_' + c]) {
+          continue;
+        }
+
+        var chunkNodesToSer = chunks[c];
+        var chunkCtx = { count: 0, skipped: 0, images: {}, fonts: {}, varKeys: trGlobalVarCache, styleKeys: trGlobalStyleCache };
+        var serializedNodes = [];
+        for (var ni = 0; ni < chunkNodesToSer.length; ni++) {
+          if (trCancelled) throw new Error('Cancelled');
+          var sn = await trSer(chunkNodesToSer[ni], chunkCtx, false);
+          if (sn) serializedNodes.push(sn);
+        }
+        
+        // Stream images used in this chunk first (deduplicating already uploaded images)
+        var chunkHashes = Object.keys(chunkCtx.images);
+        for (var ch = 0; ch < chunkHashes.length; ch++) {
+          if (trCancelled) throw new Error('Cancelled');
+          var hash = chunkHashes[ch];
+          if (exportedImages[hash]) continue;
+          try {
+            var im = figma.getImageByHash(hash);
+            if (im) {
+              var bytes = null;
+              try {
+                bytes = await withTimeout(im.getBytesAsync(), 7000, 'im.getBytesAsync(' + hash + ')');
+              } catch (eTime) {
+                console.warn('Timed out reading image ' + hash + ', skipping image bytes…');
+              }
+              if (bytes) {
+                exportedImages[hash] = true;
+                await new Promise(function (resolve) {
+                  var timer = setTimeout(function () {
+                    if (trImageAckResolve) {
+                      trImageAckResolve = null;
+                      console.warn('TR_IMAGE_CHUNK ack timeout for ' + hash + ', advancing…');
+                      resolve();
+                    }
+                  }, 10000);
+                  trImageAckResolve = function () {
+                    clearTimeout(timer);
+                    trImageAckResolve = null;
+                    resolve();
+                  };
+                  figma.ui.postMessage({
+                    type: 'TR_IMAGE_CHUNK',
+                    jobId: msg.jobId,
+                    hash: hash,
+                    bytes: bytes
+                  });
+                });
+                bytes = null;
+              }
+            }
+          } catch (eImg) {}
+          await trYield();
+        }
+        
+        var chunkFonts = Object.keys(chunkCtx.fonts).map(function (k) { return chunkCtx.fonts[k]; });
+        var chkLabel = chunkNodesToSer.length === 1
+          ? (chunkNodesToSer[0] ? chunkNodesToSer[0].name : '')
+          : (chunkNodesToSer.length + ' items (' + (chunkNodesToSer[0] ? chunkNodesToSer[0].name : '') + '…)');
+        var chunkPayload = JSON.stringify({
+          pageIndex: i,
+          chunkIndex: c,
+          totalChunks: chunks.length,
+          name: chkLabel,
+          fonts: chunkFonts,
+          nodes: serializedNodes
+        });
+        
+        // Free memory immediately
+        serializedNodes = null;
+        chunkCtx = null;
+        
+        await new Promise(function (resolve) {
+          var timer = setTimeout(function () {
+            if (trAckResolve) {
+              trAckResolve = null;
+              console.warn('TR_CHUNK_DATA ack timeout for chunk ' + c + ', advancing…');
+              resolve();
+            }
+          }, 15000);
+          trAckResolve = function () {
+            clearTimeout(timer);
+            trAckResolve = null;
+            resolve();
+          };
+          figma.ui.postMessage({
+            type: 'TR_CHUNK_DATA',
+            jobId: msg.jobId,
+            pageIndex: i,
+            chunkIndex: c,
+            totalChunks: chunks.length,
+            name: chkLabel,
+            json: chunkPayload
+          });
+        });
+        chunkPayload = null;
+        
+        await new Promise(function (r) { setTimeout(r, 0); });
+      }
+      
+      // 5. Send page end
+      await new Promise(function (resolve) {
+        var timer = setTimeout(function () { if (trAckResolve) { trAckResolve = null; resolve(); } }, 10000);
+        trAckResolve = function () { clearTimeout(timer); trAckResolve = null; resolve(); };
+        figma.ui.postMessage({
+          type: 'TR_PAGE_END',
+          jobId: msg.jobId,
+          pageIndex: i,
+          name: page.name,
+          totalChunks: chunks.length
+        });
+      });
+      
+      topChildren = null;
+      chunks = null;
+      page = null;
+      await new Promise(function (r) { setTimeout(r, 50); });
+      
+    } catch (e) {
+      if (trCancelled || String(e && e.message || e).indexOf('Cancelled') >= 0) {
+        figma.ui.postMessage({ type: 'TR_EXPORT_DONE', jobId: msg.jobId, cancelled: true });
+        return;
+      }
+      figma.ui.postMessage({ type: 'TR_EXPORT_ERROR', jobId: msg.jobId, index: i, error: String(e && e.message || e) });
+      return;
+    }
+  }
+  figma.ui.postMessage({ type: 'TR_EXPORT_DONE', jobId: msg.jobId });
+}
+
+async function trRegisterImage(msg) {
+  try {
+    if (msg.hash && msg.bytes && !trImageMap[msg.hash]) {
+      var im = figma.createImage(msg.bytes);
+      if (im) trImageMap[msg.hash] = im.hash;
+    }
+    figma.ui.postMessage({ type: 'TR_REGISTER_IMAGE_ACK', hash: msg.hash });
+  } catch (e) {
+    figma.ui.postMessage({ type: 'TR_REGISTER_IMAGE_ACK', hash: msg.hash, error: String(e && e.message || e) });
+  }
+}
+
+// ---------- builder (destination file) ----------
+async function trLoadFont(fn) {
+  try { await figma.loadFontAsync(fn); return fn; } catch (e) {}
+  try { await figma.loadFontAsync({ family: 'Inter', style: 'Regular' }); return { family: 'Inter', style: 'Regular' }; } catch (e2) { return null; }
+}
+async function trImportVar(key, ctx) {
+  if (!key) return null;
+  if (ctx.vars[key] !== undefined) return ctx.vars[key];
+  var v = null; try { v = await figma.variables.importVariableByKeyAsync(key); } catch (e) { ctx.stats.varMiss++; }
+  ctx.vars[key] = v; return v;
+}
+async function trImportStyle(key, ctx) {
+  if (!key) return null;
+  if (ctx.styles[key] !== undefined) return ctx.styles[key];
+  var s = null; try { s = await figma.importStyleByKeyAsync(key); } catch (e) { ctx.stats.styleMiss++; }
+  ctx.styles[key] = s; return s;
+}
+async function trBuildPaints(arr, ctx) {
+  if (!arr) return null;
+  var out = [];
+  for (var i = 0; i < arr.length; i++) {
+    var p = arr[i], q;
+    if (p.type === 'SOLID') {
+      q = { type: 'SOLID', color: p.color, opacity: p.opacity, visible: p.visible, blendMode: p.blendMode };
+      if (p.bvColor) { var v = await trImportVar(p.bvColor, ctx); if (v) { try { q = figma.variables.setBoundVariableForPaint(q, 'color', v); } catch (e) {} } }
+    } else if (p.type.indexOf('GRADIENT') === 0) {
+      q = { type: p.type, gradientStops: p.gradientStops, gradientTransform: p.gradientTransform, opacity: p.opacity, visible: p.visible, blendMode: p.blendMode };
+    } else if (p.type === 'IMAGE') {
+      var nh = trImageMap[p.imageHash];
+      if (!nh) { ctx.stats.imgMiss++; continue; }
+      q = { type: 'IMAGE', imageHash: nh, scaleMode: p.scaleMode, opacity: p.opacity, visible: p.visible, blendMode: p.blendMode };
+      if (p.scaleMode === 'CROP' && p.imageTransform) q.imageTransform = p.imageTransform;
+      if (p.scaleMode === 'TILE') { q.scalingFactor = p.scalingFactor; q.rotation = p.rotation; }
+      if (p.filters) q.filters = p.filters;
+    } else continue;
+    out.push(q);
+  }
+  return out;
+}
+function trSet(node, k, v) { if (v === undefined || v === null) return; try { node[k] = v; } catch (e) {} }
+async function trApplyCommon(node, sn, ctx, isTop) {
+  trSet(node, 'name', sn.name);
+  try { if (sn.w > 0 && sn.h > 0 && 'resize' in node && sn.type !== 'TEXT') node.resize(Math.max(0.01, sn.w), Math.max(0.01, sn.h)); } catch (e) {}
+  ['visible', 'locked', 'opacity', 'blendMode', 'isMask', 'maskType', 'constraints'].forEach(function (k) { trSet(node, k, sn[k]); });
+  if ('fills' in node && sn.fills) { var f = await trBuildPaints(sn.fills, ctx); if (f) trSet(node, 'fills', f); }
+  if ('strokes' in node && sn.strokes) { var s = await trBuildPaints(sn.strokes, ctx); if (s) trSet(node, 'strokes', s); }
+  ['strokeWeight', 'strokeAlign', 'strokeCap', 'strokeJoin', 'strokeMiterLimit', 'dashPattern', 'strokeTopWeight', 'strokeRightWeight', 'strokeBottomWeight', 'strokeLeftWeight',
+    'cornerSmoothing', 'clipsContent', 'cornerRadius', 'topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius'].forEach(function (k) { if (k in node) trSet(node, k, sn[k]); });
+  if (sn.effects && 'effects' in node) trSet(node, 'effects', sn.effects);
+  if (sn.layoutGrids && 'layoutGrids' in node) trSet(node, 'layoutGrids', sn.layoutGrids);
+  if (sn.layoutMode && sn.layoutMode !== 'NONE' && 'layoutMode' in node && sn.layoutMode !== 'GRID') {
+    trSet(node, 'layoutMode', sn.layoutMode);
+    ['layoutWrap', 'primaryAxisAlignItems', 'counterAxisAlignItems', 'counterAxisAlignContent', 'paddingLeft', 'paddingRight', 'paddingTop', 'paddingBottom', 'itemSpacing', 'counterAxisSpacing', 'itemReverseZIndex', 'strokesIncludedInLayout'].forEach(function (k) { trSet(node, k, sn[k]); });
+  }
+  ['minWidth', 'maxWidth', 'minHeight', 'maxHeight'].forEach(function (k) { if (k in node) trSet(node, k, sn[k]); });
+  // styles
+  try {
+    if (sn.fillStyleKey && 'setFillStyleIdAsync' in node) { var fs = await trImportStyle(sn.fillStyleKey, ctx); if (fs) await node.setFillStyleIdAsync(fs.id); }
+    if (sn.strokeStyleKey && 'setStrokeStyleIdAsync' in node) { var ss = await trImportStyle(sn.strokeStyleKey, ctx); if (ss) await node.setStrokeStyleIdAsync(ss.id); }
+    if (sn.effectStyleKey && 'setEffectStyleIdAsync' in node) { var es = await trImportStyle(sn.effectStyleKey, ctx); if (es) await node.setEffectStyleIdAsync(es.id); }
+    if (sn.gridStyleKey && 'setGridStyleIdAsync' in node) { var gs = await trImportStyle(sn.gridStyleKey, ctx); if (gs) await node.setGridStyleIdAsync(gs.id); }
+  } catch (e) {}
+  // variables
+  if (sn.bv) {
+    var keys = Object.keys(sn.bv);
+    for (var i = 0; i < keys.length; i++) {
+      if (keys[i] === 'characters' || keys[i] === 'width' || keys[i] === 'height') continue;
+      var vv = await trImportVar(sn.bv[keys[i]], ctx);
+      if (vv) { try { node.setBoundVariable(keys[i], vv); } catch (e) {} }
+    }
+  }
+}
+async function trApplyText(node, sn, ctx) {
+  var first = (sn.segs && sn.segs[0] && sn.segs[0].fontName) || { family: 'Inter', style: 'Regular' };
+  var ok = await trLoadFont(first);
+  if (ok) node.fontName = ok;
+  var fonts = {}; (sn.segs || []).forEach(function (g) { fonts[g.fontName.family + '|' + g.fontName.style] = g.fontName; });
+  var fk = Object.keys(fonts); for (var i = 0; i < fk.length; i++) await trLoadFont(fonts[fk[i]]);
+  node.characters = sn.characters || '';
+  ['textAlignHorizontal', 'textAlignVertical', 'paragraphSpacing', 'paragraphIndent'].forEach(function (k) { trSet(node, k, sn[k]); });
+  var segs = sn.segs || [];
+  for (var j = 0; j < segs.length; j++) {
+    var g = segs[j], s = g.s, e = g.e;
+    if (e <= s) continue;
+    try { node.setRangeFontName(s, e, (await trLoadFont(g.fontName)) || g.fontName); } catch (x) {}
+    try { node.setRangeFontSize(s, e, g.fontSize); } catch (x) {}
+    try { node.setRangeTextDecoration(s, e, g.textDecoration); } catch (x) {}
+    try { node.setRangeTextCase(s, e, g.textCase); } catch (x) {}
+    try { node.setRangeLineHeight(s, e, g.lineHeight); } catch (x) {}
+    try { node.setRangeLetterSpacing(s, e, g.letterSpacing); } catch (x) {}
+    try { var pf = await trBuildPaints(g.fills, ctx); if (pf) node.setRangeFills(s, e, pf); } catch (x) {}
+    try { if (g.hyperlink) node.setRangeHyperlink(s, e, g.hyperlink); } catch (x) {}
+    try { if (g.styleKey) { var st = await trImportStyle(g.styleKey, ctx); if (st) await node.setRangeTextStyleIdAsync(s, e, st.id); } } catch (x) {}
+  }
+  trSet(node, 'textAutoResize', sn.textAutoResize);
+  if (sn.textAutoResize === 'NONE' || sn.textAutoResize === 'TRUNCATE' || sn.textAutoResize === 'HEIGHT') { try { node.resize(Math.max(0.01, sn.w), Math.max(0.01, sn.h)); } catch (e) {} }
+}
+function trPlaceXY(node, sn, parent) {
+  try {
+    var autoParent = parent && 'layoutMode' in parent && parent.layoutMode && parent.layoutMode !== 'NONE';
+    if (autoParent && sn.layoutPositioning !== 'ABSOLUTE') return;
+    if (sn.t) node.relativeTransform = sn.t;
+  } catch (e) {}
+}
+function trApplySizing(node, sn, parent) {
+  try {
+    var autoParent = parent && 'layoutMode' in parent && parent.layoutMode && parent.layoutMode !== 'NONE';
+    if (autoParent && sn.layoutPositioning === 'ABSOLUTE') { try { node.layoutPositioning = 'ABSOLUTE'; } catch (e) {} }
+    if (sn.layoutSizingHorizontal) { try { node.layoutSizingHorizontal = sn.layoutSizingHorizontal; } catch (e) {} }
+    if (sn.layoutSizingVertical) { try { node.layoutSizingVertical = sn.layoutSizingVertical; } catch (e) {} }
+    if (sn.layoutMode && sn.layoutMode !== 'NONE' && 'primaryAxisSizingMode' in node) {
+      if (sn.primaryAxisSizingMode) trSet(node, 'primaryAxisSizingMode', sn.primaryAxisSizingMode);
+      if (sn.counterAxisSizingMode) trSet(node, 'counterAxisSizingMode', sn.counterAxisSizingMode);
+    }
+  } catch (e) {}
+}
+async function trGetLib(key, ctx) {
+  if (trLibCache[key] !== undefined) return trLibCache[key];
+  var c = null; try { c = await figma.importComponentByKeyAsync(key); } catch (e) {}
+  trLibCache[key] = c; return c;
+}
+function trSameJson(a, b) { try { return JSON.stringify(a) === JSON.stringify(b); } catch (e) { return false; } }
+async function trOverrides(inst, sn, ctx) {
+  // Re-apply what was changed inside the instance (text, fills, visibility...) by walking both trees in parallel.
+  var pc = 'children' in inst ? inst.children : [], sc = sn.children || [];
+  for (var i = 0; i < sc.length && i < pc.length; i++) {
+    var a = pc[i], b = sc[i];
+    if (a.type !== b.type) continue;
+    try {
+      if (b.type === 'INSTANCE' && b.mainKey) {
+        var cur = await a.getMainComponentAsync();
+        if (!cur || cur.key !== b.mainKey) { var lc = await trGetLib(b.mainKey, ctx); if (lc) a.swapComponent(lc); }
+        if (b.props) { try { var pp = {}; Object.keys(b.props).forEach(function (k) { if (a.componentProperties && a.componentProperties[k]) pp[k] = b.props[k]; }); a.setProperties(pp); } catch (e) {} }
+      }
+      if (a.visible !== b.visible && b.visible !== undefined) a.visible = b.visible;
+      if (b.opacity !== undefined && Math.abs(a.opacity - b.opacity) > 0.001) a.opacity = b.opacity;
+      if (b.type === 'TEXT') {
+        if (a.characters !== b.characters) await trApplyText(a, b, ctx);
+        else if (b.segs && b.segs.length === 1 && b.segs[0].fills) { var tf = await trBuildPaints(b.segs[0].fills, ctx); if (tf && !trSameJson(tf, a.fills)) a.fills = tf; }
+      } else if ('fills' in a && b.fills && !b.fillStyleKey) {
+        var nf = await trBuildPaints(b.fills, ctx);
+        if (nf && !trSameJson(nf, a.fills)) a.fills = nf;
+      }
+      if (b.type !== 'TEXT' && 'resize' in a && b.w > 0 && (Math.abs(a.width - b.w) > 0.5 || Math.abs(a.height - b.h) > 0.5) && !(inst.layoutMode && inst.layoutMode !== 'NONE')) { try { a.resize(b.w, b.h); } catch (e) {} }
+    } catch (e) { /* keep going: one bad override must not stop the page */ }
+    if (b.children && b.children.length && 'children' in a) await trOverrides(a, b, ctx);
+  }
+}
+async function trBuild(sn, parent, ctx) {
+  ctx.done++;
+  if (ctx.done % 100 === 0) { figma.ui.postMessage({ type: 'TR_PROGRESS', jobId: ctx.jobId, phase: 'build', index: ctx.index, name: ctx.name, done: ctx.done, total: ctx.total }); await trYield(); }
+  if (trCancelled) throw new Error('Cancelled');
+  var t = sn.type, node = null, asFrame = false;
+  if (t === 'INSTANCE') {
+    var comp = null;
+    if (ctx.local[sn.mainId]) comp = ctx.local[sn.mainId];
+    else if (sn.mainKey) comp = await trGetLib(sn.mainKey, ctx);
+    if (comp) {
+      node = comp.createInstance(); parent.appendChild(node); ctx.stats.linked++;
+      await trApplyCommon(node, sn, ctx, false);
+      if (sn.props) { try { var pp = {}; Object.keys(sn.props).forEach(function (k) { if (node.componentProperties && node.componentProperties[k]) pp[k] = sn.props[k]; }); node.setProperties(pp); } catch (e) {} }
+      await trOverrides(node, sn, ctx);
+      trApplySizing(node, sn, parent); trPlaceXY(node, sn, parent);
+      return node;
+    }
+    ctx.stats.detached++; asFrame = true; t = 'FRAME';
+  }
+  if (t === 'FRAME' || asFrame) node = figma.createFrame();
+  else if (t === 'GROUP') node = null;
+  else if (t === 'SECTION') node = figma.createSection();
+  else if (t === 'COMPONENT') node = figma.createComponent();
+  else if (t === 'COMPONENT_SET') node = null;
+  else if (t === 'RECTANGLE') node = figma.createRectangle();
+  else if (t === 'ELLIPSE') node = figma.createEllipse();
+  else if (t === 'POLYGON') node = figma.createPolygon();
+  else if (t === 'STAR') node = figma.createStar();
+  else if (t === 'LINE') node = figma.createLine();
+  else if (t === 'VECTOR') node = figma.createVector();
+  else if (t === 'TEXT') node = figma.createText();
+  else if (t === 'BOOLEAN_OPERATION') node = null;
+  else { ctx.stats.skipped++; return null; }
+
+  if (t === 'GROUP' || t === 'BOOLEAN_OPERATION' || t === 'COMPONENT_SET') {
+    // containers made from their children
+    var made = [];
+    for (var i = 0; i < (sn.children || []).length; i++) { var c = await trBuild(sn.children[i], parent, ctx); if (c) made.push(c); }
+    if (!made.length) return null;
+    var cont;
+    try {
+      if (t === 'GROUP') cont = figma.group(made, parent);
+      else if (t === 'BOOLEAN_OPERATION') { cont = figma.createBooleanOperation(); parent.appendChild(cont); made.forEach(function (m) { cont.appendChild(m); }); cont.booleanOperation = sn.booleanOperation || 'UNION'; }
+      else { var comps = made.filter(function (m) { return m.type === 'COMPONENT'; }); cont = comps.length ? figma.combineAsVariants(comps, parent) : null; }
+    } catch (e) { cont = null; }
+    if (cont) { trSet(cont, 'name', sn.name); await trApplyCommon(cont, sn, ctx, false); trApplySizing(cont, sn, parent); }
+    return cont;
+  }
+  parent.appendChild(node);
+  if (t === 'COMPONENT') ctx.local[sn.id] = node;
+  await trApplyCommon(node, sn, ctx, false);
+  if (t === 'VECTOR' && sn.vectorPaths) { try { node.vectorPaths = sn.vectorPaths; } catch (e) {} }
+  if (t === 'STAR') { trSet(node, 'pointCount', sn.pointCount); trSet(node, 'innerRadius', sn.innerRadius); }
+  if (t === 'POLYGON') trSet(node, 'pointCount', sn.pointCount);
+  if (t === 'ELLIPSE') trSet(node, 'arcData', sn.arcData);
+  if (t === 'TEXT') await trApplyText(node, sn, ctx);
+  if (sn.children && 'appendChild' in node) {
+    for (var j = 0; j < sn.children.length; j++) await trBuild(sn.children[j], node, ctx);
+  }
+  trApplySizing(node, sn, parent); trPlaceXY(node, sn, parent);
+  return node;
+}
+
+var trCurrentImportPage = null;
+var trImportCtx = null;
+
+async function trBuildPageStart(msg) {
+  var name = msg.name;
+  var exists = figma.root.children.some(function (p) { return p.name === name; });
+  if (exists) name = name + ' (transferred)';
+  trCurrentImportPage = figma.createPage();
+  trCurrentImportPage.name = name;
+  if (msg.backgrounds) { try { trCurrentImportPage.backgrounds = msg.backgrounds; } catch (e) {} }
+  trImportCtx = {
+    jobId: msg.jobId,
+    index: msg.pageIndex,
+    name: name,
+    done: 0,
+    vars: {},
+    styles: {},
+    local: {},
+    stats: { linked: 0, detached: 0, skipped: 0, varMiss: 0, styleMiss: 0, imgMiss: 0 }
+  };
+  figma.ui.postMessage({ type: 'TR_BUILD_PAGE_START_ACK', pageIndex: msg.pageIndex, pageName: name });
+}
+
+async function trBuildChunk(msg) {
+  if (trCancelled) {
+    figma.ui.postMessage({ type: 'TR_BUILD_CHUNK_ACK', pageIndex: msg.pageIndex, chunkIndex: msg.chunkIndex, cancelled: true });
+    return;
+  }
+  var data = JSON.parse(msg.json);
+  var fonts = data.fonts || [];
+  for (var f = 0; f < fonts.length; f++) await trLoadFont(fonts[f]);
+  
+  if (!trCurrentImportPage) {
+    var pName = (msg.pageName || 'Page') + ' (transferred)';
+    trCurrentImportPage = figma.createPage();
+    trCurrentImportPage.name = pName;
+  }
+  if (!trImportCtx) {
+    trImportCtx = {
+      jobId: msg.jobId,
+      index: msg.pageIndex,
+      name: trCurrentImportPage.name,
+      done: 0,
+      vars: {},
+      styles: {},
+      local: {},
+      stats: { linked: 0, detached: 0, skipped: 0, varMiss: 0, styleMiss: 0, imgMiss: 0 }
+    };
+  }
+  
+  var nodes = data.nodes || [];
+  for (var i = 0; i < nodes.length; i++) {
+    if (trCancelled) throw new Error('Cancelled');
+    await trBuild(nodes[i], trCurrentImportPage, trImportCtx);
+  }
+  nodes = null;
+  data = null;
+  
+  figma.ui.postMessage({
+    type: 'TR_BUILD_CHUNK_ACK',
+    pageIndex: msg.pageIndex,
+    chunkIndex: msg.chunkIndex,
+    totalChunks: msg.totalChunks,
+    stats: trImportCtx ? trImportCtx.stats : {}
+  });
+}
+
+async function trBuildPageEnd(msg) {
+  var st = trImportCtx ? trImportCtx.stats : {};
+  var pName = trCurrentImportPage ? trCurrentImportPage.name : msg.name;
+  trCurrentImportPage = null;
+  trImportCtx = null;
+  figma.ui.postMessage({
+    type: 'TR_BUILD_PAGE_END_ACK',
+    pageIndex: msg.pageIndex,
+    ok: true,
+    pageName: pName,
+    stats: st
+  });
+}
+
+async function trImportPage(msg) {
+  trCancelled = false;
+  var data = JSON.parse(msg.json);
+  // images -> this file
+  var im = msg.images || {};
+  Object.keys(im).forEach(function (h) { if (!trImageMap[h]) { try { trImageMap[h] = figma.createImage(im[h]).hash; } catch (e) {} } });
+  var fonts = data.fonts || []; for (var f = 0; f < fonts.length; f++) await trLoadFont(fonts[f]);
+  var name = data.name, exists = figma.root.children.some(function (p) { return p.name === name; });
+  if (exists) name = name + ' (transferred)';
+  var page = figma.createPage(); page.name = name;
+  var ctx = { jobId: msg.jobId, index: msg.index, name: data.name, done: 0, total: data.nodeCount || 1, vars: {}, styles: {}, local: {}, stats: { linked: 0, detached: 0, skipped: data.skipped || 0, varMiss: 0, styleMiss: 0, imgMiss: 0 } };
+  try {
+    if (data.backgrounds) { try { page.backgrounds = data.backgrounds; } catch (e) {} }
+    for (var i = 0; i < (data.children || []).length; i++) await trBuild(data.children[i], page, ctx);
+    figma.ui.postMessage({ type: 'TR_IMPORT_RESULT', jobId: msg.jobId, index: msg.index, ok: true, pageName: name, stats: ctx.stats });
+  } catch (e) {
+    try { page.remove(); } catch (x) {}
+    figma.ui.postMessage({ type: 'TR_IMPORT_RESULT', jobId: msg.jobId, index: msg.index, ok: false, error: String(e && e.message || e) });
+  }
+}
+
+// ---------- archive (source file) ----------
+async function trArchive(msg) {
+  var arch = null;
+  figma.root.children.forEach(function (p) { if (!arch && /archive/i.test(p.name)) arch = p; });
+  if (!arch) { arch = figma.createPage(); arch.name = 'Archive'; }
+  await arch.loadAsync();
+  var y = 0;
+  arch.children.forEach(function (c) { y = Math.max(y, c.y + c.height); });
+  y += y ? 600 : 0;
+  var moved = 0, pages = 0, fontOk = await trLoadFont({ family: 'Inter', style: 'Bold' });
+  for (var i = 0; i < (msg.pageIds || []).length; i++) {
+    var p = await figma.getNodeByIdAsync(msg.pageIds[i]);
+    if (!p || p.type !== 'PAGE' || p.id === arch.id) continue;
+    await p.loadAsync();
+    var kids = p.children.slice();
+    if (!kids.length) continue;
+    var minX = Infinity, minY = Infinity, maxY = -Infinity;
+    kids.forEach(function (k) { minX = Math.min(minX, k.x); minY = Math.min(minY, k.y); maxY = Math.max(maxY, k.y + k.height); });
+    if (fontOk) { var lb = figma.createText(); arch.appendChild(lb); lb.fontName = fontOk; lb.fontSize = 48; lb.characters = p.name + ' — transferred ' + new Date().toISOString().slice(0, 10); lb.x = 0; lb.y = y; }
+    var dx = -minX, dy = y + 120 - minY;
+    kids.forEach(function (k) { arch.appendChild(k); k.x += dx; k.y += dy; moved++; });
+    y += (maxY - minY) + 120 + 600; pages++;
+    if (msg.deleteAfterArchive) {
+      try { p.remove(); } catch (e) {}
+    }
+    await trYield();
+  }
+  var l_arch = await trListPages();
+  figma.ui.postMessage({ type: 'TR_ARCHIVE_RESULT', ok: true, moved: moved, pages: pages, archiveName: arch.name, newPages: l_arch.pages });
+}
+
+// ---------- native copy/paste helpers ----------
+async function trNativeSelect(msg) {
+  var p = await figma.getNodeByIdAsync(msg.pageId);
+  if (!p || p.type !== 'PAGE') { figma.ui.postMessage({ type: 'TR_NATIVE_RESULT', ok: false, error: 'Page not found' }); return; }
+  if (figma.currentPage !== p) await figma.setCurrentPageAsync(p);
+  // Skip the agents feature's temporary cursor overlay; it is not part of the design.
+  var items = p.children.filter(function (n) { return n.name !== GHOST_CONTAINER_NAME; });
+  // msg.clear: deselect, so the focus click cannot land on a selected frame's handles.
+  p.selection = msg.clear ? [] : items;
+  if (!msg.keepView) { try { if (items.length) figma.viewport.scrollAndZoomIntoView(items); } catch (e) {} }
+  figma.ui.postMessage({ type: 'TR_NATIVE_RESULT', ok: true, count: items.length, name: p.name, bounds: trNodesBounds(items) });
+}
+
+// Bounding box (page coordinates) of a list of top-level nodes.
+function trNodesBounds(nodes) {
+  var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (var i = 0; i < nodes.length; i++) {
+    var n = nodes[i]; if (typeof n.x !== 'number') continue;
+    var w = n.width || 0, h = n.height || 0;
+    if (n.x < x0) x0 = n.x; if (n.y < y0) y0 = n.y;
+    if (n.x + w > x1) x1 = n.x + w; if (n.y + h > y1) y1 = n.y + h;
+  }
+  if (x0 === Infinity) return null;
+  return { x: x0, y: y0, w: Math.max(1, x1 - x0), h: Math.max(1, y1 - y0) };
+}
+
+// Automatic paste: open/create the page, remember what is already there, aim the view at the source position.
+var trPasteBefore = null, trPastePage = null;
+async function trNativePrepare(msg) {
+  var page = null;
+  figma.root.children.forEach(function (p) { if (!page && p.name === msg.name) page = p; });
+  var created = false;
+  if (!page) { page = figma.createPage(); page.name = msg.name; created = true; }
+  await figma.setCurrentPageAsync(page);
+  page.selection = [];
+  trPastePage = page; trPasteBefore = {};
+  page.children.forEach(function (n) { trPasteBefore[n.id] = 1; });
+  var b = msg.bounds;
+  if (b) {
+    try {
+      figma.viewport.center = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+      var vb = figma.viewport.bounds, z = figma.viewport.zoom;
+      var fit = Math.min((vb.width * z) / b.w, (vb.height * z) / b.h) * 0.9;
+      figma.viewport.zoom = Math.max(0.02, Math.min(4, fit));
+    } catch (e) {}
+  }
+  figma.ui.postMessage({ type: 'TR_NATIVE_PREPARED', ok: true, name: page.name, created: created, existing: page.children.length });
+}
+function trPastedNodes() {
+  if (!trPastePage || !trPasteBefore) return [];
+  return trPastePage.children.filter(function (n) { return !trPasteBefore[n.id] && n.name !== GHOST_CONTAINER_NAME; });
+}
+function trNativeCount() {
+  figma.ui.postMessage({ type: 'TR_NATIVE_COUNTED', count: trPastedNodes().length });
+}
+// Put the pasted items back at their original position (Figma may drop them at the view centre).
+function trNativeFinish(msg) {
+  var nodes = trPastedNodes(), moved = false, b = msg.bounds, nb = trNodesBounds(nodes);
+  if (b && nb) {
+    var dx = b.x - nb.x, dy = b.y - nb.y;
+    if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+      nodes.forEach(function (n) { try { n.x += dx; n.y += dy; } catch (e) {} });
+      moved = true;
+    }
+  }
+  try { if (nodes.length) figma.viewport.scrollAndZoomIntoView(nodes); } catch (e) {}
+  if (trPastePage) trPastePage.selection = [];
+  figma.ui.postMessage({ type: 'TR_NATIVE_FINISHED', count: nodes.length, moved: moved });
+  trPasteBefore = null; trPastePage = null;
+}
+async function trNativeOpen(msg) {
+  var page = null;
+  figma.root.children.forEach(function (p) { if (!page && p.name === msg.name) page = p; });
+  var created = false;
+  if (!page) { page = figma.createPage(); page.name = msg.name; created = true; }
+  await figma.setCurrentPageAsync(page);
+  figma.ui.postMessage({ type: 'TR_NATIVE_OPENED', ok: true, name: msg.name, created: created, empty: page.children.length === 0 });
+}
+
+
+// ---------- delete pages (source file) ----------
+async function trDeletePages(msg) {
+  var ids = msg.pageIds || [];
+  var deleted = 0;
+  var names = [];
+  var remaining = figma.root.children.filter(function (p) {
+    return ids.indexOf(p.id) < 0;
+  });
+  if (remaining.length === 0) {
+    var fallback = figma.createPage();
+    fallback.name = 'Page 1';
+  }
+  for (var i = 0; i < ids.length; i++) {
+    var p = await figma.getNodeByIdAsync(ids[i]);
+    if (p && p.type === 'PAGE') {
+      try {
+        names.push(p.name);
+        p.remove();
+        deleted++;
+      } catch (e) {
+        console.warn('Could not remove page', p.name, e);
+      }
+    }
+  }
+  var l = await trListPages();
+  figma.ui.postMessage({ type: 'TR_DELETE_RESULT', ok: true, deleted: deleted, names: names, pages: l.pages });
+}
+
+async function trHandle(msg) {
+  try {
+    if (msg.type === 'TR_LIST') {
+      var l = await trListPages();
+      figma.ui.postMessage({ type: 'TR_LIST_RESULT', fileKey: figma.fileKey || null, fileName: figma.root.name, pages: l.pages, words: l.words, current: figma.currentPage.id });
+    } else if (msg.type === 'TR_EXPORT') await trExport(msg);
+    else if (msg.type === 'TR_ACK') { if (trAckResolve) { var r = trAckResolve; trAckResolve = null; r(); } }
+    else if (msg.type === 'TR_IMAGE_ACK') { if (trImageAckResolve) { var r_img = trImageAckResolve; trImageAckResolve = null; r_img(); } }
+    else if (msg.type === 'TR_REGISTER_IMAGE') await trRegisterImage(msg);
+    else if (msg.type === 'TR_CANCEL') {
+      trCancelled = true;
+      if (trAckResolve) { var r2 = trAckResolve; trAckResolve = null; r2(); }
+      if (trImageAckResolve) { var r3 = trImageAckResolve; trImageAckResolve = null; r3(); }
+      if (trCurrentImportPage && trCurrentImportPage.children.length === 0) {
+        try { trCurrentImportPage.remove(); } catch (e) {}
+      }
+      trCurrentImportPage = null;
+      trImportCtx = null;
+    }
+    else if (msg.type === 'TR_BUILD_PAGE_START') await trBuildPageStart(msg);
+    else if (msg.type === 'TR_BUILD_CHUNK') await trBuildChunk(msg);
+    else if (msg.type === 'TR_BUILD_PAGE_END') await trBuildPageEnd(msg);
+    else if (msg.type === 'TR_IMPORT_PAGE') await trImportPage(msg);
+    else if (msg.type === 'TR_ARCHIVE') await trArchive(msg);
+    else if (msg.type === 'TR_DELETE_PAGES') await trDeletePages(msg);
+    else if (msg.type === 'TR_NATIVE_SELECT') await trNativeSelect(msg);
+    else if (msg.type === 'TR_NATIVE_OPEN') await trNativeOpen(msg);
+    else if (msg.type === 'TR_NATIVE_PREPARE') await trNativePrepare(msg);
+    else if (msg.type === 'TR_NATIVE_COUNT') trNativeCount();
+    else if (msg.type === 'TR_NATIVE_FINISH') trNativeFinish(msg);
+    else if (msg.type === 'TR_NATIVE_UI') { if (msg.visible) figma.ui.show(); else figma.ui.hide(); }
+    else if (msg.type === 'TR_RESET') {
+      trImageMap = {};
+      trLibCache = {};
+      trGlobalVarCache = {};
+      trGlobalStyleCache = {};
+      trCancelled = false;
+      trAckResolve = null;
+      trImageAckResolve = null;
+      trCurrentImportPage = null;
+      trImportCtx = null;
+    }
+    else if (msg.type === 'TR_NOTIFY') { figma.notify(String(msg.text || ''), { timeout: msg.timeout || 6000, error: !!msg.error }); }
+  } catch (e) {
+    figma.ui.postMessage({ type: 'TR_FATAL', error: String(e && e.message || e), for: msg.type });
+  }
+}

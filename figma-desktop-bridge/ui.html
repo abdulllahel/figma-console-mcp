@@ -458,9 +458,109 @@
       --log-error:            #ff8080;
       --log-warn:             #fc0;
     }
+    /* Collapsed (default): only the status row is visible */
+    body.collapsed .status-meta, body.collapsed #agent-panel, body.collapsed .update-banner,
+    body.collapsed .cloud-pair, body.collapsed .cloud-help, body.collapsed .cloud-status,
+    body.collapsed .sub-toolbar, body.collapsed .log-panel { display: none !important; }
+    body.collapsed #cloud-icon, body.collapsed #expand-btn { display: none !important; }
+    #collapse-btn svg { transition: transform .15s; }
+    body:not(.collapsed) #collapse-btn svg { transform: rotate(180deg); }
+    body.collapsed #about { display: none !important; }
+    #agent-list { max-height: 142px; overflow-y: auto; }
+    .agent-tabs { display: flex; gap: 2px; border-bottom: 1px solid rgba(128,128,128,0.25); margin-bottom: 3px; }
+    .agent-tab { background: transparent; border: none; border-bottom: 2px solid transparent; color: inherit; opacity: 0.6; font: inherit; font-size: 11px; padding: 3px 8px; cursor: pointer; }
+    .agent-tab.on { opacity: 1; font-weight: 600; border-bottom-color: #1abcfe; }
+    .agent-btn { background: transparent; border: 1px solid rgba(128,128,128,0.4); border-radius: 4px; color: inherit; font: inherit; font-size: 10px; padding: 1px 6px; cursor: pointer; }
+    .agent-btn:hover { background: rgba(128,128,128,0.15); }
+    .report-preview { white-space: pre-wrap; font-size: 10.5px; line-height: 1.5; max-height: 150px; overflow-y: auto; margin-top: 4px; padding: 6px; border-radius: 4px; background: rgba(128,128,128,0.12); user-select: text; }
+    .agent-empty { font-size: 11px; opacity: 0.55; padding: 6px 4px; }
+    details.task > summary { display: flex; align-items: center; gap: 6px; font-size: 11px; padding: 3px 4px; cursor: pointer; list-style: none; border-radius: 4px; }
+    details.task > summary::-webkit-details-marker { display: none; }
+    details.task > summary::before { content: '\25B8'; width: 10px; flex: none; }
+    details.task[open] > summary::before { content: '\25BE'; }
+    details.task > summary:hover { background: rgba(128,128,128,0.15); }
+    details.task .agent-row { padding-left: 16px; }
+    .task-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .agent-row.following { background: rgba(26,188,254,0.15); }
+    .agent-row.pop { animation: agentpop .45s cubic-bezier(.2,1.6,.4,1); }
+    .agent-row.done .agent-task { color: #0acf83; opacity: 1; font-weight: 600; }
+    @keyframes agentpop { 0% { transform: scale(.85); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+    .status-indicator.dot-pop { animation: dotpop .6s ease-out; }
+    @keyframes dotpop { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(10,207,131,.7); } 40% { transform: scale(1.8); } 100% { transform: scale(1); box-shadow: 0 0 0 10px rgba(10,207,131,0); } }
+    .agent-row.past { opacity: 0.6; cursor: default; }
+    .agent-time { flex: none; opacity: 0.6; font-size: 10px; }
+    #about { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(128,128,128,0.25); font-size: 11px; }
+    #about img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: none; }
+    #about .about-name { font-weight: 600; line-height: 1.2; }
+    #about a { color: #1abcfe; text-decoration: none; font-size: 10px; }
+    #about a:hover { text-decoration: underline; }
+    /* Agent panel (live view of which agent is doing what) */
+    #agent-panel { display: none; margin-top: 4px; }
+    #agent-panel.visible { display: block; }
+    .agent-row { display: flex; align-items: center; gap: 6px; padding: 3px 4px; font-size: 11px; border-radius: 4px; cursor: pointer; }
+    .agent-row:hover { background: rgba(128,128,128,0.15); }
+    .agent-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; opacity: 0.35; }
+    .agent-row.active .agent-dot { opacity: 1; box-shadow: 0 0 0 3px rgba(128,128,128,0.25); }
+    .agent-name { font-weight: 600; flex: none; }
+    .agent-task { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.75; }
+    /* ---- Custom FigShot tab ---- */
+    .agent-tab { padding: 3px 6px; }
+    .fs-bar { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0 6px; }
+    .fs-btn { font: inherit; font-size: 10px; padding: 3px 6px; border-radius: 5px; border: 1px solid rgba(128,128,128,0.4); background: transparent; color: inherit; cursor: pointer; }
+    .fs-btn:disabled { opacity: 0.4; cursor: default; }
+    .fs-btn.armed { background: #e5484d; border-color: #e5484d; color: #fff; }
+    .fs-list { max-height: 250px; overflow: auto; }
+    .fs-acc { border: 1px solid rgba(128,128,128,0.25); border-radius: 6px; margin: 4px 0; }
+    .fs-acc-head { display: flex; align-items: center; gap: 6px; padding: 5px 6px; cursor: pointer; }
+    .fs-caret { width: 10px; opacity: 0.7; }
+    .fs-dom { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fs-count { opacity: 0.6; }
+    .fs-body { padding: 2px 6px 6px; }
+    .fs-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+    .fs-row .p { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fs-row .n { opacity: 0.55; }
+    .fs-x { background: none; border: 0; color: inherit; opacity: 0.55; cursor: pointer; font: inherit; padding: 0 2px; }
+    .fs-x.armed { opacity: 1; color: #fff; background: #e5484d; border-radius: 4px; }
+    .fs-mini { width: 100%; margin-top: 6px; font: inherit; font-size: 11px; padding: 5px; border-radius: 5px; border: 1px solid rgba(128,128,128,0.3); background: rgba(128,128,128,0.15); color: inherit; opacity: 0.85; cursor: pointer; }
+    .fs-mini:disabled, .fs-main:disabled { opacity: 0.45; cursor: default; }
+    .fs-main { width: 100%; margin-top: 8px; font: inherit; font-weight: 700; padding: 8px; border-radius: 6px; border: 0; cursor: pointer; background: var(--figma-color-bg-brand, #0d99ff); color: var(--figma-color-text-onbrand, #fff); }
+    .fs-copy { width: 100%; margin-top: 6px; font: inherit; padding: 6px; border-radius: 6px; cursor: pointer; border: 1px solid rgba(128,128,128,0.4); background: transparent; color: inherit; }
+    #fs-status { margin-top: 6px; opacity: 0.85; line-height: 1.4; user-select: text; }
+    .tr-wrap { padding: 2px 0; }
+    .tr-h { font-weight: 700; margin: 6px 0 3px; }
+    .tr-in { width: 100%; box-sizing: border-box; font: inherit; font-size: 11px; padding: 5px 6px; border-radius: 5px; border: 1px solid rgba(128,128,128,0.4); background: transparent; color: inherit; }
+    .tr-msg { font-size: 10.5px; line-height: 1.4; opacity: 0.8; margin: 3px 0; user-select: text; }
+    .tr-msg.ok { color: #1bc47d; opacity: 1; } .tr-msg.bad { color: #f24822; opacity: 1; }
+    .tr-prog { margin: 6px 0; } .tr-track { height: 8px; border-radius: 4px; background: rgba(128,128,128,0.25); overflow: hidden; }
+    .tr-fill { height: 100%; width: 3%; border-radius: 4px; background: var(--figma-color-bg-brand, #0d99ff); transition: width .25s; }
+    .tr-job { border: 1px solid rgba(128,128,128,0.25); border-radius: 6px; padding: 4px 6px; margin: 4px 0; } .tr-jt { font-weight: 600; font-size: 10.5px; }
+    .fs-main.tr-armed { background: #e5484d; }
+    .tr-toast { position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 9999; padding: 8px 10px; border-radius: 6px; background: #1bc47d; color: #fff; font-weight: 600; transition: opacity .5s; }
+    .tr-toast.err { background: #e5484d; } .tr-toast.out { opacity: 0; }
+    .fs-empty { opacity: 0.7; padding: 8px 2px; line-height: 1.4; }
+    .tr-cancel-btn { width: 100%; margin-top: 8px; font: inherit; font-weight: 600; font-size: 11px; padding: 7px 12px; border-radius: 6px; border: 1px solid rgba(229,72,77,0.4); background: rgba(229,72,77,0.14); color: #ff8585; cursor: pointer; transition: all .2s; }
+    .tr-cancel-btn:hover { background: #e5484d; color: #fff; border-color: #e5484d; }
+    .tr-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0; }
+    .tr-stat-pill { background: rgba(128,128,128,0.12); border: 1px solid rgba(128,128,128,0.2); border-radius: 6px; padding: 6px 4px; text-align: center; }
+    .tr-stat-val { font-size: 12px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tr-stat-lbl { font-size: 9px; opacity: 0.65; margin-top: 1px; text-transform: uppercase; letter-spacing: 0.4px; }
+    .tr-page-list { margin: 8px 0; max-height: 180px; overflow-y: auto; border: 1px solid rgba(128,128,128,0.2); border-radius: 6px; background: rgba(0,0,0,0.2); padding: 4px; }
+    .tr-page-item { display: flex; align-items: center; justify-content: space-between; padding: 5px 8px; border-radius: 4px; margin-bottom: 2px; font-size: 11px; }
+    .tr-page-item:hover { background: rgba(255,255,255,0.05); }
+    .tr-page-item.active { background: rgba(13,153,255,0.15); border: 1px solid rgba(13,153,255,0.3); }
+    .tr-page-left { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+    .tr-page-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tr-page-count { font-size: 10px; opacity: 0.6; white-space: nowrap; }
+    .tr-badge { font-size: 9.5px; font-weight: 600; padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+    .tr-badge.done { background: rgba(27,196,125,0.2); color: #1bc47d; }
+    .tr-badge.active { background: rgba(13,153,255,0.25); color: #0d99ff; }
+    .tr-badge.queued { background: rgba(128,128,128,0.2); color: #aaa; }
+    .tr-badge.error { background: rgba(229,72,77,0.2); color: #ff8585; }
+    .tr-resume-btn { width: 100%; margin-top: 8px; font: inherit; font-weight: 700; font-size: 11px; padding: 8px 12px; border-radius: 6px; border: 0; background: #1bc47d; color: #fff; cursor: pointer; transition: background .2s; }
+    .tr-resume-btn:hover { background: #17a96b; }
   </style>
 </head>
-<body>
+<body class="collapsed">
   <div class="wrap">
     <!-- Row 1 — always visible -->
     <div class="row-top">
@@ -476,6 +576,9 @@
         </svg>
       </button>
       <button class="icon-btn" id="expand-btn" onclick="toggleSubToolbar()" title="Show options" aria-label="Show options" aria-expanded="false">+</button>
+      <button class="icon-btn" id="collapse-btn" onclick="toggleCollapse()" title="Expand" aria-label="Expand" aria-expanded="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
     </div>
 
     <!-- Status meta — connection count + proof of life (shown when connected) -->
@@ -483,6 +586,9 @@
       <span id="status-conn-count"></span>
       <span id="status-last-action"></span>
     </div>
+
+    <!-- Agent panel: one row per connected AI app, click to jump to its last node -->
+    <div id="agent-panel" aria-label="Agents"></div>
 
     <!-- Visible recovery instruction, shown only in the error state -->
     <div class="status-error-hint" id="status-error-hint">Close this window and reopen the plugin.</div>
@@ -531,6 +637,15 @@
     <!-- Activity panel (shown when Activity active) -->
     <div class="row log-panel" id="log-panel">
       <div class="log-entries" id="log-entries"></div>
+    </div>
+
+    <!-- About -->
+    <div id="about">
+      <img alt="Abdullah Al Mamun" src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAASABIAAD/4QBARXhpZgAATU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAYKADAAQAAAABAAAAYAAAAAD/7QA4UGhvdG9zaG9wIDMuMAA4QklNBAQAAAAAAAA4QklNBCUAAAAAABDUHYzZjwCyBOmACZjs+EJ+/+IB2ElDQ19QUk9GSUxFAAEBAAAByAAAAAAEMAAAbW50clJHQiBYWVogB+AAAQABAAAAAAAAYWNzcAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPbWAAEAAAAA0y0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJZGVzYwAAAPAAAAAkclhZWgAAARQAAAAUZ1hZWgAAASgAAAAUYlhZWgAAATwAAAAUd3RwdAAAAVAAAAAUclRSQwAAAWQAAAAoZ1RSQwAAAWQAAAAoYlRSQwAAAWQAAAAoY3BydAAAAYwAAAA8bWx1YwAAAAAAAAABAAAADGVuVVMAAAAIAAAAHABzAFIARwBCWFlaIAAAAAAAAG+iAAA49QAAA5BYWVogAAAAAAAAYpkAALeFAAAY2lhZWiAAAAAAAAAkoAAAD4QAALbPWFlaIAAAAAAAAPbWAAEAAAAA0y1wYXJhAAAAAAAEAAAAAmZmAADypwAADVkAABPQAAAKWwAAAAAAAAAAbWx1YwAAAAAAAAABAAAADGVuVVMAAAAgAAAAHABHAG8AbwBnAGwAZQAgAEkAbgBjAC4AIAAyADAAMQA2/8AAEQgAYABgAwEiAAIRAQMRAf/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/EAB8BAAMBAQEBAQEBAQEAAAAAAAABAgMEBQYHCAkKC//EALURAAIBAgQEAwQHBQQEAAECdwABAgMRBAUhMQYSQVEHYXETIjKBCBRCkaGxwQkjM1LwFWJy0QoWJDThJfEXGBkaJicoKSo1Njc4OTpDREVGR0hJSlNUVVZXWFlaY2RlZmdoaWpzdHV2d3h5eoKDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uLj5OXm5+jp6vLz9PX29/j5+v/bAEMAAgICAgICBAICBAYEBAQGCAYGBgYICggICAgICgwKCgoKCgoMDAwMDAwMDA4ODg4ODhAQEBAQEhISEhISEhISEv/bAEMBAwMDBQQFCAQECBMNCw0TExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE//dAAQABv/aAAwDAQACEQMRAD8A/RiiiiusyCiiigAorhviB8QdA+HHh6bxBrjFhHjZChXzJCTgBQxA9z7V+b3xH/bC8Yak0knh6/XS7btHGoyAOB+8I3Ek9emOOKlySLjByP1bwTSYI61+GWpftL+OJtkWs+ILsTSLuQx3DgY/unaQN31FX/hX+2H4o8JeP7OHxNqd1c6VO480TSNKpTocBicEe2P1qfaIp0mup+31FcD8OviT4Y+KGht4g8KyM8CuYzvADAj2yeo5Fd9VmQUUUUwP/9D9GKKKK6zIKKKKAPyL/agu/Gnin426v4U0q3l1FrUQrFBGpOyJ41bLYHGSScn1rldF/Y4+IfjPTvtHiy8i0m3Qb1hQGSVj2BYnjHtX6EfEnU7f4aeKtQ8erp0N62oW9uj75ViOLcOCASOTgjr6Vzo/aD8L3nhc+LLm0MFsfl2ghstjJAZeCK+cx+OnTqOEHZH1+VZbSq0o1Kqu7fKx8Yf8MF+EW0+eW91eb7SuAoBHJ6kkV8S/Ev4OP4F8VSeH4b5pmgw6iUY3L7H1r9TY/wBoDwRr9wyRabeWu5uJvL3Jn14Oce4r4i/apsNQ1fW7HxHFgxYaJXXqT1GT6EUsHipupGFR7l5ngqPsZVKEdVbY+/f2AJ7MfDTU9P3K17Begz4OcBo1KY9uoH0NfelfB37AHw0vfBvwouPF2ps3m+IphLGrDpBADGh/4EdxHtivvGvoo7Hx8twoooqiT//R/RiiiiusyCiiigDg/iH4U8JeKfDVxD4okSCJUdTI2PuupVx+Kkj36V85eLvhX8OdF+FY8C6ZNGgmlWdY1YGRI4xgsB7dT7V1/j+48V6triaZokUMotrvfMLhisaRp8xcgA5PQqMHJPNfIfjbS7E+NofFthef2/HCZTcWsEpViZCWcBdiEDJPygkH0r4utCdSpNt21Z+jYRwpUaaSvojuof2W/tUlney6n9nsIYgEeJiA+W37jyQWOcZx04rzj4t+GtBDwaSsL3drYurSBeWbJWMHAIJwWyQDkivVJvi95+iQR2sL2kCrxE5IZNvBB+lZnwYtR8TfiZcxQyRtZ2kBa43gtuVmA2pg8E+/GM1nQVWtUtHdGmLlQoUuaez/AOHPuD4TaVdaH8NNE0i9CCS3tETEahEC/wAOFHAG3FehU1ESJBHGNqqAAB2A6CnV9rCPLFRZ+cVJ883NK12FFFFWQf/S/RiiiiusyCis3V9Y0vQNMm1nWp0tbW3XfJLIcKo9/wCQHc18MeK/27fDthr9xpHhHSGv7eAYFxNIYt7YySsaqx2r3ydxJAAzSbGot7HsHx61vxF8NPL+JWiWX9o2G3ydSgAJZFH3JhjsB8rZ4xg1+f8Arn7S/gO48y8t9OSykcl2eIgNz6471y37Qv7VXxU8ceEZPBmpiHTba8G+4htkKSGMcrHIxZiAeCVz6Z7itz4W/DPTvGXwd0C41/TohetAcSNGA7xh2EZY9SdmOTXgZrChT/e1Fv2Pp8kq4qpehSktFfU+dfFfxtl18yWmiRSF52wucnqfzr2n4RfGGb4HanpHksZZZLgS6wq4OYGG3ye/zKDv9iFHrXm/xH07w94Avn0rRIkF70LKOUB/r6CvH4POjUzTscdSP8c963wNOMoqpCNl+ZzZlVnGTpVZc0tn2X/BP6ZbC+s9UsYdT06QTW9xGssUi8hkcZUj6g1ar8W/2ef2rvEHwsuLXQfF08l74fYbGhdg0luM8NBnnaO6ZwR0wa/YPwt4r8OeNtDh8SeFLyO+srgZSWM5Ge4I6qw7ggEV7CdzwZRsdDRRRTEf/9P9GKCQASTgDkk0V8e/tifFZfBXgM+D9Ll2ajrAwxUkNHbqfmbI/vkbR7bq6mZpXdj47/ax+P178RtWn8G+Gp9ujWE4C7OPPZQN0jHuOoT256mviXUNM1W/050imaG4uGG6RDtKj72AR0wOvqTVizvpJ9XmBGWCHHcc/wD166eVRBAsI5IGD7luv51m9ToS6Hmtxqd5Ym3024gE4hWNVcdck7VLDncWxya+uPHP7W+meCvAWj+B/AVuLnVItPgiuLgYVIHCAOqryWYHueB718p3ML6nqDz7UaBZDuVxlWWNdqggEZA5P1rL03wraKUkSPaZPn6cKvY49+1ctfCwruPtFex04bGVcOpKi7X6mHY+KPFGqXs9/rsBuzIxkd+jgsffr+PPvXZtN9rijkiiZT1WKQYJYdCevyjqa0pre202H5QOOAPVj0rNf/Sb37BbbmIXa7jjCj7wHoWbj2AroStocz7ssabJptnE91OxlkY/NMRwzeidyB+XvXt/wa/aC8RfCDxINV0MSyWcxAu7ZxiKdfXr8rgfdYAke44rxZmsISChErqMDYMqnsMcD+dZNzeclj1pisf0leCfGWg/EHwrZeMfDMvnWV9HvQ91PRkYdmUggj1FdVX5j/8ABOrx3PdWmvfD27kykWzULdSem4+XNgemdh+tfpxWqdzBqzsf/9T718W+KtG8E+HbrxPr0nl2tom5vVj/AAqvqzHgV+D/AMZfiXrPxG8VXmv6vIWeRz5ak8JECdiL0GFHHv1PNeuftL/tG6/8Q/FFz4NtZI/7N0+6mjto7ZWbztjlBK5zzwODwoycV8Ua/e30MZnnR8A8tgkD8cdPat5McFYt+F7nzvETo3Hybj+BrqNV1DyzvX1rx3R9fW21iWReWeLA/PJrp7nUftcGe5I/U4qLlpnVWkMUeniJ1wzZ3Nnk7jkgfUcVvzNHaRneAXPLfh0FY17qZN1bJcKgEKZOxQM7ehOOpJIyfasnV9SiKEIxBHemBS1XVkN5GrnKw7nfHqOv+FT6XavbWRkuEaaa4O+ReiLnorMeuPQZ57Vm+ENIbWNTa/nOba0OSCPvSZyB+HU/hXfX0vJRDnFIRyl1Nd7cF0RR0VBnH4nj9K5m5nLHOST71pahcRltqsHY9cHOKwZZNpxQwPuz/gn7rEen/HMafL1v9PuYV57rtl/HhDX7b1+Gv7A3grXvE3xxi8V6eNmn+HYpHupT0LTxvFHGPUsST7BT7V+5VaQ2MZ7n/9k=" />
+      <div>
+        <div class="about-name">Abdullah Al Mamun</div>
+        <a href="https://www.linkedin.com/in/abdullahell/" target="_blank" rel="noopener noreferrer">LinkedIn ↗</a>
+      </div>
     </div>
   </div>
 
@@ -594,7 +709,7 @@
         text = 'Not connected';
       }
       dot.className = 'status-indicator' + (dotClass ? ' ' + dotClass : '');
-      stateText.textContent = text;
+      stateText.textContent = (dotClass === 'active') ? 'Connected' : text;
       stateText.title = text; // full sentence survives ellipsis truncation
 
       var hint = document.getElementById('status-error-hint');
@@ -1053,7 +1168,635 @@
       var wsPort = null;
       var wsConnected = false;
 
-      // Method-to-function mapping
+      // ---- Agent tracking (panel only; adds nothing to the Figma file) ----
+      // Each MCP server (one per Claude app/session) is one "agent", keyed by its
+      // server pid. Sub-agents sharing a server can tag a script with "// @agent Name".
+      // Commands are grouped into TASKS: a task opens when work starts and closes when
+      // every agent has been quiet for a few seconds. "// @task Name" in a script names it.
+      var AGENT_NAMES = ['রবীন্দ্রনাথ ঠাকুর', 'কাজী নজরুল ইসলাম', 'জীবনানন্দ দাশ', 'মাইকেল মধুসূদন দত্ত', 'শামসুর রাহমান', 'সুকান্ত ভট্টাচার্য', 'জসীমউদ্দীন', 'সুনীল গঙ্গোপাধ্যায়', 'শক্তি চট্টোপাধ্যায়', 'বুদ্ধদেব বসু', 'বিষ্ণু দে', 'সুধীন্দ্রনাথ দত্ত', 'শঙ্খ ঘোষ', 'নীরেন্দ্রনাথ চক্রবর্তী', 'আল মাহমুদ', 'সৈয়দ শামসুল হক', 'নির্মলেন্দু গুণ', 'রফিক আজাদ', 'হেলাল হাফিজ', 'ফররুখ আহমদ', 'দ্বিজেন্দ্রলাল রায়', 'সত্যেন্দ্রনাথ দত্ত', 'মোহিতলাল মজুমদার', 'বিনয় মজুমদার', 'মল্লিকা সেনগুপ্ত', 'মহাদেব সাহা', 'আহসান হাবীব', 'অমিয় চক্রবর্তী', 'আলাওল', 'কায়কোবাদ', 'গোলাম মোস্তফা', 'ইসমাইল হোসেন সিরাজী', 'জালালউদ্দিন রুমি', 'হাফিজ শিরাজী', 'শেখ সাদী', 'ওমর খৈয়াম', 'আল্লামা ইকবাল', 'ফেরদৌসী', 'ফরিদউদ্দিন আত্তার', 'মির্জা গালিব', 'আমির খসরু', 'নিজামি গাঞ্জাভি', 'আব্দুর রহমান জামি', 'হাসসান ইবনে সাবিত'];
+      var AGENT_COLORS = ['#f24e1e', '#0acf83', '#1abcfe', '#a259ff', '#ff7262', '#ffc700', '#ff4db8', '#00b8a9', '#8a8a8a', '#6c5ce7'];
+      var agents = {};        // key -> agent record
+      var agentOrder = [];
+      var inflight = [];      // keys of agents with a command in progress
+      var lastEndedKey = null, lastEndedAt = 0;
+      var ghostOn = true;     // ghost cursors on canvas
+      var ghostLast = {};     // key -> last send time (throttle)
+      var ghostIdle = {};     // key -> pending removal timer
+      var ghostShown = {};    // key -> true while a cursor may exist on canvas
+      var followKey = null;   // agent whose cursor the viewport follows
+      var soundOn = true;
+      var activeTab = 'figshot';
+      var openTasks = {};     // task id -> accordion open
+      var tasks = [];         // this session's tasks (oldest first)
+      var pastTasks = [];     // tasks loaded from earlier sessions (newest first)
+      var legacyHist = [];    // old per-agent history entries from earlier plugin versions
+      var curTask = null;
+      var histSaveTimer = null;
+      var DONE_QUIET_MS = 8000, TASK_MAX = 30;
+      var READ_RE = /^(GET_|LIST_|SEARCH_|REFRESH|CAPTURE|FIND_)/;
+
+      function fmtAgo(t) {
+        var s = Math.max(0, Math.round((Date.now() - t) / 1000));
+        if (s < 60) return s + 's';
+        if (s < 3600) return Math.floor(s / 60) + 'm';
+        if (s < 86400) return Math.floor(s / 3600) + 'h';
+        return Math.floor(s / 86400) + 'd';
+      }
+      function hhmm(t) { var d = new Date(t); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
+      function nodeList(n) { return Array.isArray(n) ? n : Object.keys(n || {}); }
+
+      // ---- Ghost cursors / follow ----
+      function ghostSend(a, force) {
+        var following = followKey === a.key;
+        if (!ghostOn && !following) return;
+        var now = Date.now();
+        if (!force && now - (ghostLast[a.key] || 0) < 80) return; // ~12 updates/s
+        ghostLast[a.key] = now;
+        if (ghostOn) ghostShown[a.key] = true;
+        if (ghostIdle[a.key]) { clearTimeout(ghostIdle[a.key]); ghostIdle[a.key] = null; }
+        parent.postMessage({ pluginMessage: { type: 'GHOST_CURSORS', action: 'update',
+          agent: { key: a.key, name: a.name, color: a.color, show: ghostOn, nodeId: a.lastNodes.length ? a.lastNodes[a.lastNodes.length - 1] : null } } }, '*');
+      }
+      function ghostScheduleRemove(a) {
+        if (!ghostOn) return;
+        if (ghostIdle[a.key]) clearTimeout(ghostIdle[a.key]);
+        // Task finished: let the cursor linger briefly, then vanish
+        ghostIdle[a.key] = setTimeout(function() {
+          ghostIdle[a.key] = null;
+          if (!a.busy) parent.postMessage({ pluginMessage: { type: 'GHOST_CURSORS', action: 'remove', key: a.key } }, '*');
+        }, 2500);
+      }
+      function toggleGhost() {
+        ghostOn = !ghostOn; if (!ghostOn) ghostShown = {};
+        parent.postMessage({ pluginMessage: { type: 'GHOST_CURSORS', action: ghostOn ? 'enable' : 'disable' } }, '*');
+        renderAgents();
+      }
+      function toggleFollow(key) {
+        followKey = (followKey === key) ? null : key;
+        parent.postMessage({ pluginMessage: { type: 'FOLLOW_AGENT', key: followKey } }, '*');
+        if (followKey && agents[followKey]) ghostSend(agents[followKey], true);
+        renderAgents();
+      }
+
+      // ---- Chime + pop when an agent finishes ----
+      var audioCtx = null, lastChime = 0;
+      function audioUnlock() {
+        try {
+          audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+          if (audioCtx.state === 'suspended') audioCtx.resume();
+        } catch (e) {}
+      }
+      document.addEventListener('pointerdown', audioUnlock);
+      function chime() {
+        var now = Date.now();
+        if (!soundOn || now - lastChime < 1200) return;
+        lastChime = now;
+        try {
+          audioUnlock();
+          if (!audioCtx) return;
+          var t0 = audioCtx.currentTime;
+          [[880, 0], [1318.5, 0.13]].forEach(function(n) {
+            var o = audioCtx.createOscillator(), g = audioCtx.createGain();
+            o.type = 'sine'; o.frequency.value = n[0];
+            g.gain.setValueAtTime(0.0001, t0 + n[1]);
+            g.gain.exponentialRampToValueAtTime(0.18, t0 + n[1] + 0.02);
+            g.gain.exponentialRampToValueAtTime(0.0001, t0 + n[1] + 0.35);
+            o.connect(g); g.connect(audioCtx.destination);
+            o.start(t0 + n[1]); o.stop(t0 + n[1] + 0.4);
+          });
+        } catch (e) {}
+      }
+      function popStatusDot() {
+        var d = document.getElementById('status-dot');
+        if (!d) return;
+        d.classList.remove('dot-pop'); void d.offsetWidth; d.classList.add('dot-pop');
+        setTimeout(function() { d.classList.remove('dot-pop'); }, 800);
+      }
+      function agentDone(a) {
+        a.popAt = Date.now();
+        chime(); popStatusDot();
+        renderAgents(); saveHistory();
+      }
+
+      // ---- Tasks ----
+      function cleanParams(params) {
+        if (params && typeof params.code === 'string') {
+          return { code: params.code.replace(/^\s*\/\/\s*@(agent|task)\b[^\n]*\n?/gm, '') };
+        }
+        return params;
+      }
+      function taskTagOf(params) {
+        var m = (params && typeof params.code === 'string') ? /^\s*\/\/\s*@task\s+([^\n]{1,60})/m.exec(params.code) : null;
+        return m ? m[1].trim() : null;
+      }
+      function commandLabel(method, params) {
+        var l = null;
+        try { l = (typeof summariseCommand === 'function') ? summariseCommand(method, cleanParams(params)) : null; } catch (e) {}
+        l = l || method.toLowerCase().replace(/_/g, ' ');
+        return l.length > 40 ? l.slice(0, 39) + '…' : l;
+      }
+      function openTask() {
+        var n = tasks.length + 1;
+        curTask = { id: Date.now(), n: n, name: 'Task ' + n, named: false, tagged: false, startedAt: Date.now(), endedAt: 0, agents: {} };
+        tasks.push(curTask);
+        return curTask;
+      }
+      function closeTask() {
+        if (!curTask) return;
+        curTask.endedAt = Date.now();
+        curTask = null;
+        if (activeTab === 'report') requestReport('preview');
+        renderAgents(); saveHistory();
+      }
+      function serTask(t) {
+        var o = { id: t.id, name: t.name, startedAt: t.startedAt, endedAt: t.endedAt || Date.now(), agents: {} };
+        Object.keys(t.agents).forEach(function(k) {
+          var x = t.agents[k];
+          o.agents[k] = { name: x.name, color: x.color, cmds: x.cmds, edits: x.edits, errors: x.errors || 0, nodes: nodeList(x.nodes).slice(0, 12) };
+        });
+        return o;
+      }
+      function allTasks() { return tasks.slice().reverse().concat(pastTasks); }
+      function saveHistory() {
+        if (histSaveTimer) clearTimeout(histSaveTimer);
+        histSaveTimer = setTimeout(function() {
+          histSaveTimer = null;
+          var all = tasks.slice().reverse().map(serTask).concat(pastTasks).slice(0, TASK_MAX);
+          parent.postMessage({ pluginMessage: { type: 'HISTORY_SAVE', tasks: all } }, '*');
+        }, 1000);
+      }
+      window.__agentHistoryLoaded = function(entries, savedTasks) {
+        legacyHist = Array.isArray(entries) ? entries.slice(0, 50) : [];
+        pastTasks = Array.isArray(savedTasks) ? savedTasks.slice(0, TASK_MAX) : [];
+        renderAgents();
+      };
+      parent.postMessage({ pluginMessage: { type: 'HISTORY_GET' } }, '*');
+
+      function noteTouched(a, ids) {
+        var ta = curTask && curTask.agents[a.key];
+        if (!ta) return;
+        for (var i = 0; i < ids.length; i++) { if (Object.keys(ta.nodes).length >= 300) break; ta.nodes[ids[i]] = true; }
+      }
+
+      // ---- Report (copy text or PDF) ----
+      var reportMode = 'copy';
+      var flashMsg = { copy: '', pdf: '' }, flashTimer = null;
+      function flashReport(which, msg) {
+        flashMsg[which] = msg; renderAgents();
+        if (flashTimer) clearTimeout(flashTimer);
+        flashTimer = setTimeout(function() { flashMsg = { copy: '', pdf: '' }; renderAgents(); }, 2200);
+      }
+      function requestReport(mode) {
+        reportMode = mode;
+        var ids = {};
+        allTasks().forEach(function(t) {
+          Object.keys(t.agents).forEach(function(k) { nodeList(t.agents[k].nodes).slice(0, 12).forEach(function(id) { ids[id] = true; }); });
+        });
+        parent.postMessage({ pluginMessage: { type: 'REPORT_RESOLVE', ids: Object.keys(ids).slice(0, 150) } }, '*');
+      }
+      function cmdSummary(cmds) {
+        return Object.keys(cmds || {}).sort(function(x, y) { return cmds[y] - cmds[x]; }).slice(0, 4)
+          .map(function(c) { return c + ' x' + cmds[c]; }).join(', ');
+      }
+      function plural(n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); }
+      function nodeNames(x, names) {
+        var ids = nodeList(x.nodes), shown = ids.slice(0, 12).map(function(id) { return names[id] || id; });
+        return shown.length ? shown.join(', ') + (ids.length > shown.length ? ' +' + (ids.length - shown.length) + ' more' : '') : '';
+      }
+      function taskTotals(t) {
+        var ks = Object.keys(t.agents), e = 0;
+        ks.forEach(function(k) { e += t.agents[k].edits; });
+        return { agents: ks.length, edits: e };
+      }
+      function dur(ms) {
+        var s = Math.max(1, Math.round(ms / 1000));
+        if (s < 60) return s + ' sec';
+        var m = Math.round(s / 60);
+        return m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min';
+      }
+      function nameOf(id, names) { return names[id] || id; }
+      function cleanDoing(cmds) {
+        // "create rectangle x4" -> "created 4 rectangles" style is hard to do reliably; keep it plain and readable
+        return Object.keys(cmds || {}).sort(function(x, y) { return cmds[y] - cmds[x]; }).slice(0, 5)
+          .map(function(c) { return c + (cmds[c] > 1 ? ' (' + cmds[c] + ' times)' : ''); });
+      }
+      // One report model feeds both the text copy and the PDF, so they always say the same thing.
+      // Block types: title, meta, h1, h2, p, bullet, agent, rule, gap
+      function buildReport(all, names, fileName) {
+        var B = [], totalEdits = 0, totalAgents = {}, first = Infinity, last = 0, totalFails = 0;
+        all.forEach(function(t) {
+          var tt = taskTotals(t); totalEdits += tt.edits;
+          first = Math.min(first, t.startedAt); last = Math.max(last, t.endedAt || Date.now());
+          Object.keys(t.agents).forEach(function(k) { totalAgents[t.agents[k].name] = true; totalFails += t.agents[k].errors || 0; });
+        });
+        var nAgents = Object.keys(totalAgents).length;
+        B.push({ t: 'title', x: 'Agent Work Report' });
+        B.push({ t: 'meta', x: (fileName ? 'File: ' + fileName : 'Figma file') });
+        B.push({ t: 'meta', x: 'Created: ' + new Date().toLocaleString() });
+        B.push({ t: 'gap' });
+        B.push({ t: 'h1', x: 'What happened' });
+        B.push({ t: 'p', x: plural(nAgents, 'agent') + ' worked on ' + plural(all.length, 'task') + ' and made ' + plural(totalEdits, 'change') +
+          ' in about ' + dur(last - first) + '.' + (totalFails ? ' ' + plural(totalFails, 'command') + ' failed along the way.' : ' Nothing failed.') });
+        B.push({ t: 'gap' });
+        var overlaps = [], deleted = [], readers = [], failed = [], mainNodes = [];
+        all.forEach(function(t, ti) {
+          var ks = Object.keys(t.agents), tt = taskTotals(t), seen = {};
+          B.push({ t: 'rule' });
+          B.push({ t: 'h2', x: t.name });
+          B.push({ t: 'meta', x: 'When: ' + hhmm(t.startedAt) + ' to ' + hhmm(t.endedAt || Date.now()) + ' (' + dur((t.endedAt || Date.now()) - t.startedAt) + ')' });
+          B.push({ t: 'meta', x: 'Result: ' + plural(tt.agents, 'agent') + ' made ' + plural(tt.edits, 'change') + '.' });
+          B.push({ t: 'gap' });
+          ks.forEach(function(k) {
+            var x = t.agents[k], ids = nodeList(x.nodes), errs = x.errors || 0;
+            B.push({ t: 'agent', x: x.name, c: x.color, s: x.edits ? 'made ' + plural(x.edits, 'change') : 'only looked, made no changes' });
+            var doing = cleanDoing(x.cmds);
+            if (doing.length) B.push({ t: 'bullet', x: 'What it did: ' + doing.join('; ') + '.' });
+            if (ids.length) {
+              var shown = ids.slice(0, 8).map(function(id) { return nameOf(id, names); });
+              B.push({ t: 'bullet', x: 'Where: ' + shown.join(', ') + (ids.length > shown.length ? ' and ' + (ids.length - shown.length) + ' more' : '') + '.' });
+            }
+            if (errs) B.push({ t: 'bullet', x: 'Problems: ' + plural(errs, 'command') + ' failed.' });
+            B.push({ t: 'gap' });
+            if (!x.edits) readers.push(x.name);
+            if (errs) failed.push(x.name + ' (' + t.name + ')');
+            ids.forEach(function(id) {
+              var nm = nameOf(id, names);
+              if (/\(deleted\)/.test(nm)) deleted.push(nm.replace(' (deleted)', ''));
+              if (seen[id] && seen[id] !== x.name) overlaps.push(nm);
+              seen[id] = seen[id] || x.name;
+              if (mainNodes.length < 6 && !/\(deleted\)/.test(nm) && mainNodes.indexOf(nm) < 0) mainNodes.push(nm);
+            });
+          });
+        });
+        // Suggested actions: plain checks that follow from what actually happened
+        B.push({ t: 'rule' });
+        B.push({ t: 'h1', x: 'What you should do next' });
+        var steps = [];
+        if (failed.length) steps.push('Look at the failed steps first. ' + failed.join(', ') + ' had commands that did not work. Ask Claude to retry them or tell you what went wrong.');
+        if (mainNodes.length) steps.push('Open Figma and look at what changed: ' + mainNodes.join(', ') + '. Check spacing, alignment and text.');
+        if (overlaps.length) steps.push('More than one agent edited the same layer (' + overlaps.slice(0, 5).join(', ') + '). Make sure these still look right and nothing was overwritten.');
+        if (deleted.length) steps.push('Some layers were deleted (' + deleted.slice(0, 5).join(', ') + '). If that was not intended, press Cmd+Z in Figma or restore from version history.');
+        if (readers.length && !totalEdits) steps.push('The agents only read the file and changed nothing. If you expected changes, ask Claude to try again.');
+        steps.push('If you are happy with the result, save a version (File > Save to version history) so you can come back to it later.');
+        steps.forEach(function(s, i) { B.push({ t: 'p', x: (i + 1) + '. ' + s }); B.push({ t: 'gap' }); });
+        B.push({ t: 'meta', x: 'Note: changes are counted from what Figma reported while each agent was working. During busy moments a change can be counted for the wrong agent.' });
+        return B;
+      }
+      function reportText(all, names, fileName) {
+        var out = [];
+        buildReport(all, names, fileName).forEach(function(b) {
+          if (b.t === 'gap') out.push('');
+          else if (b.t === 'rule') out.push('------------------------------');
+          else if (b.t === 'title') out.push(b.x.toUpperCase());
+          else if (b.t === 'h1') out.push(b.x.toUpperCase());
+          else if (b.t === 'h2') out.push(b.x);
+          else if (b.t === 'agent') out.push('  ' + b.x + ' ' + b.s);
+          else if (b.t === 'bullet') out.push('     - ' + b.x);
+          else out.push(b.x);
+        });
+        return out.join('\n') + '\n';
+      }
+function copyText(text) {
+        var ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        var ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) {}
+        document.body.removeChild(ta);
+        return ok;
+      }
+
+      // PDF: report pages are drawn on a canvas (so Bangla names render with the system font)
+      // and embedded as JPEG images in a minimal hand-written PDF.
+      function drawReportPages(all, names, fileName) {
+        var W = 1190, H = 1684, M = 90, pages = [], c, g, y = 0;
+        var FONT = '"Noto Sans Bengali","Kohinoor Bangla","Bangla Sangam MN",system-ui,sans-serif';
+        function f(sz, bold) { return (bold ? '600 ' : '400 ') + (sz * 2) + 'px ' + FONT; }
+        function newPage() {
+          c = document.createElement('canvas'); c.width = W; c.height = H;
+          g = c.getContext('2d'); g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H); g.textBaseline = 'top';
+          pages.push(c); y = M;
+        }
+        function need(h) { if (y + h > H - M) newPage(); }
+        function wrap(text, font, maxW) {
+          g.font = font;
+          var words = String(text).split(/\s+/), out = [], line = '';
+          words.forEach(function(w) {
+            var t = line ? line + ' ' + w : w;
+            if (g.measureText(t).width > maxW && line) { out.push(line); line = w; } else { line = t; }
+          });
+          if (line) out.push(line);
+          return out;
+        }
+        // Draw wrapped text; line height is generous so the page breathes
+        function para(text, sz, color, x, bold, lh) {
+          var font = f(sz, bold);
+          wrap(text, font, W - M - x).forEach(function(l) {
+            need(sz * lh); g.font = font; g.fillStyle = color; g.fillText(l, x, y); y += sz * lh;
+          });
+        }
+        newPage();
+        buildReport(all, names, fileName).forEach(function(b) {
+          if (b.t === 'title') { para(b.x, 24, '#111111', M, true, 2.8); y += 6; }
+          else if (b.t === 'meta') para(b.x, 10.5, '#777777', M, false, 2.5);
+          else if (b.t === 'gap') y += 22;
+          else if (b.t === 'rule') { need(60); y += 10; g.fillStyle = '#e2e2e2'; g.fillRect(M, y, W - 2 * M, 2); y += 34; }
+          else if (b.t === 'h1') { need(80); para(b.x, 16, '#111111', M, true, 2.8); y += 4; }
+          else if (b.t === 'h2') { need(80); para(b.x, 14, '#111111', M, true, 2.8); }
+          else if (b.t === 'agent') {
+            need(70);
+            g.fillStyle = b.c || '#888888'; g.beginPath(); g.arc(M + 12, y + 17, 10, 0, 7); g.fill();
+            para(b.x + '  –  ' + b.s, 12, '#111111', M + 36, true, 2.7);
+          }
+          else if (b.t === 'bullet') {
+            need(50); g.fillStyle = '#999999'; g.beginPath(); g.arc(M + 48, y + 17, 4, 0, 7); g.fill();
+            para(b.x, 11, '#444444', M + 66, false, 2.6);
+          }
+          else para(b.x, 11.5, '#222222', M, false, 2.7);
+        });
+        pages.forEach(function(p, i) {
+          var gg = p.getContext('2d'); gg.font = f(9, false); gg.fillStyle = '#999999'; gg.textBaseline = 'top';
+          gg.fillText('Page ' + (i + 1) + ' / ' + pages.length, W / 2 - 40, H - 54);
+        });
+        return pages;
+      }
+function makePdf(imgs) {
+        var chunks = [], offs = [], pos = 0;
+        function enc(s) { var a = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) a[i] = s.charCodeAt(i) & 255; return a; }
+        function put(x) { var b = (typeof x === 'string') ? enc(x) : x; chunks.push(b); pos += b.length; }
+        function obj(n, body) { offs[n] = pos; put(n + ' 0 obj\n' + body + '\nendobj\n'); }
+        function pad10(n) { return ('0000000000' + n).slice(-10); }
+        var n = imgs.length, kids = [], i;
+        put('%PDF-1.4\n');
+        for (i = 0; i < n; i++) kids.push((3 + 3 * i) + ' 0 R');
+        obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+        obj(2, '<< /Type /Pages /Kids [' + kids.join(' ') + '] /Count ' + n + ' >>');
+        for (i = 0; i < n; i++) {
+          var pg = 3 + 3 * i, ct = 4 + 3 * i, im = 5 + 3 * i, stream = 'q 595 0 0 842 0 0 cm /Im0 Do Q';
+          obj(pg, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /XObject << /Im0 ' + im + ' 0 R >> >> /Contents ' + ct + ' 0 R >>');
+          obj(ct, '<< /Length ' + stream.length + ' >>\nstream\n' + stream + '\nendstream');
+          offs[im] = pos;
+          put(im + ' 0 obj\n<< /Type /XObject /Subtype /Image /Width ' + imgs[i].w + ' /Height ' + imgs[i].h + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + imgs[i].bytes.length + ' >>\nstream\n');
+          put(imgs[i].bytes); put('\nendstream\nendobj\n');
+        }
+        var xr = pos, total = 3 + 3 * n;
+        put('xref\n0 ' + total + '\n0000000000 65535 f \n');
+        for (i = 1; i < total; i++) put(pad10(offs[i]) + ' 00000 n \n');
+        put('trailer\n<< /Size ' + total + ' /Root 1 0 R >>\nstartxref\n' + xr + '\n%%EOF');
+        return new Blob(chunks, { type: 'application/pdf' });
+      }
+      function downloadPdf(all, names, fileName) {
+        var pages = drawReportPages(all, names, fileName);
+        var imgs = pages.map(function(p) {
+          var b64 = p.toDataURL('image/jpeg', 0.85).split(',')[1], bin = atob(b64), bytes = new Uint8Array(bin.length);
+          for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          return { bytes: bytes, w: p.width, h: p.height };
+        });
+        var blob = makePdf(imgs), url = URL.createObjectURL(blob), a = document.createElement('a');
+        a.href = url; a.download = 'agent-working-history.pdf';
+        document.body.appendChild(a); a.click();
+        setTimeout(function() { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1500);
+      }
+      var lastPreview = '';
+      window.__agentReportNames = function(data) {
+        var names = (data && data.names) || {}, fileName = data && data.fileName;
+        var all = allTasks().filter(function(t) { return Object.keys(t.agents).length; });
+        var which = reportMode;
+        if (which === 'preview') {
+          lastPreview = all.length ? reportText(all, names, fileName) : '';
+          renderAgents();
+          return;
+        }
+        if (!all.length) { flashReport(which, 'Nothing to report'); return; }
+        try {
+          if (which === 'pdf') { downloadPdf(all, names, fileName); flashReport('pdf', 'Downloaded ✓'); }
+          else { flashReport('copy', copyText(reportText(all, names, fileName)) ? 'Copied ✓' : 'Copy failed'); }
+        } catch (e) {
+          console.error('[MCP Bridge] report failed:', e);
+          flashReport(which, 'Failed');
+        }
+      };
+
+      // ---- Agents ----
+      var namePool = [];
+      function nextPoetName() {
+        if (!namePool.length) {
+          var used = agentOrder.map(function(k) { return agents[k].name; });
+          namePool = AGENT_NAMES.filter(function(n) { return used.indexOf(n) < 0; });
+          if (!namePool.length) namePool = AGENT_NAMES.slice();
+          for (var i = namePool.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = namePool[i]; namePool[i] = namePool[j]; namePool[j] = t; }
+        }
+        return namePool.pop();
+      }
+      function agentFor(activeWs, params) {
+        var conn = activeConnections.find(function(c) { return c.ws === activeWs; });
+        var key = (conn && conn.serverInfo && conn.serverInfo.pid) ? 'pid-' + conn.serverInfo.pid : 'port-' + (conn ? conn.port : '?');
+        // Sub-agents share one connection; they can tag a script with "// @agent Name" to appear separately
+        var tag = params && typeof params.code === 'string' ? /^\s*\/\/\s*@agent\s+([^\n]{1,30})/m.exec(params.code) : null;
+        var tagName = tag ? tag[1].trim() : null;
+        if (tagName) key += '|' + tagName;
+        if (!agents[key]) {
+          var n = agentOrder.length;
+          agents[key] = { key: key, name: nextPoetName(), color: AGENT_COLORS[n % AGENT_COLORS.length], task: 'idle', lastNodes: [], nodeCount: 0, busy: 0, lastAt: 0, working: false, popAt: 0 };
+          agentOrder.push(key);
+        }
+        return agents[key];
+      }
+      function agentBegin(a, method, params) {
+        var isRead = READ_RE.test(method);
+        var label = commandLabel(method, params), tag = taskTagOf(params);
+        if (!curTask) openTask();
+        if (tag) { curTask.name = tag; curTask.named = curTask.tagged = true; }
+        else if (!curTask.named && !isRead) { curTask.name = 'Task ' + curTask.n + ': ' + label; curTask.named = true; }
+        var ta = curTask.agents[a.key];
+        if (!ta) ta = curTask.agents[a.key] = { name: a.name, color: a.color, cmds: {}, edits: 0, nodes: {} };
+        ta.cmds[label] = (ta.cmds[label] || 0) + 1;
+        a.taskRef = curTask;
+        a.busy++; a.working = true; a.task = label; a.lastAt = Date.now();
+        var ids = [];
+        if (params) { if (typeof params.nodeId === 'string') ids.push(params.nodeId); if (Array.isArray(params.nodeIds)) ids = ids.concat(params.nodeIds); }
+        if (ids.length) { a.lastNodes = ids.slice(0, 50); noteTouched(a, ids); }
+        inflight.push(a.key); renderAgents();
+        if (!isRead) ghostSend(a, true); // reads don't need a cursor
+      }
+      function agentEnd(a, failed) {
+        var fta = a.taskRef && a.taskRef.agents[a.key];
+        if (failed && fta) fta.errors = (fta.errors || 0) + 1;
+        a.busy = Math.max(0, a.busy - 1); a.lastAt = Date.now();
+        var i = inflight.indexOf(a.key); if (i >= 0) inflight.splice(i, 1);
+        lastEndedKey = a.key; lastEndedAt = Date.now();
+        if (!a.busy) ghostScheduleRemove(a);
+        renderAgents();
+      }
+      window.__agentOnDocChange = function(data) {
+        // The oldest in-flight command is the one the plugin is actually running (FIFO)
+        var key = inflight.length ? inflight[0] : (Date.now() - lastEndedAt < 800 ? lastEndedKey : null);
+        var a = key && agents[key];
+        if (!a || !data || !data.changedNodeIds || !data.changedNodeIds.length) return;
+        a.lastNodes = data.changedNodeIds.slice(-50); a.nodeCount += data.changedNodeIds.length; a.lastAt = Date.now();
+        var ta = curTask && curTask.agents[a.key];
+        if (ta) ta.edits += data.changedNodeIds.length;
+        noteTouched(a, data.changedNodeIds);
+        renderAgents(); ghostSend(a, false);
+      };
+
+      // Once a second: drop cursors of quiet agents, detect finished agents/tasks, refresh timers.
+      var sweepTick = 0;
+      setInterval(function() {
+        var now = Date.now();
+        Object.keys(ghostShown).forEach(function(k) {
+          var a = agents[k];
+          if (ghostShown[k] && a && !a.busy && now - a.lastAt > 2500) {
+            ghostShown[k] = false;
+            parent.postMessage({ pluginMessage: { type: 'GHOST_CURSORS', action: 'remove', key: k } }, '*');
+          }
+        });
+        var popping = false;
+        agentOrder.forEach(function(k) {
+          var a = agents[k];
+          if (a.working && !a.busy && now - a.lastAt > DONE_QUIET_MS) { a.working = false; agentDone(a); }
+          if (a.popAt && now - a.popAt < 3600) popping = true;
+        });
+        if (curTask && !agentOrder.some(function(k) { return agents[k].working || agents[k].busy; })) closeTask();
+        if (popping || (++sweepTick % 20 === 0)) renderAgents();
+      }, 1000);
+
+      // ---- Panel ----
+      setTimeout(function() { renderAgents(); }, 0);
+      var renderTimer = null;
+      function renderAgents() {
+        if (renderTimer) return;
+        renderTimer = setTimeout(function() { renderTimer = null; renderAgentsNow(); }, 100);
+      }
+      function mk(tag, cls, text) {
+        var e = document.createElement(tag);
+        if (cls) e.className = cls;
+        if (text !== undefined) e.textContent = text;
+        return e;
+      }
+      function agentRowShell(color, name, nameColor) {
+        var row = mk('div', 'agent-row');
+        var dot = mk('span', 'agent-dot'); dot.style.background = color || '#888';
+        var nm = mk('span', 'agent-name', name); nm.style.color = nameColor || color || '#888';
+        row.appendChild(dot); row.appendChild(nm);
+        return { row: row, dot: dot, nm: nm };
+      }
+      function renderLive(root) {
+        var tg = mk('label', 'agent-row'); tg.style.opacity = '0.85';
+        var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = ghostOn; cb.onchange = toggleGhost;
+        tg.appendChild(cb); tg.appendChild(document.createTextNode('Show cursors on canvas'));
+        tg.title = 'Cursors are temporary nodes on the canvas and are removed after each task';
+        var snd = mk('button', 'agent-btn', soundOn ? '\u{1F514}' : '\u{1F515}');
+        snd.style.marginLeft = 'auto'; snd.title = soundOn ? 'Chime on: click to mute' : 'Chime muted: click to turn on';
+        snd.onclick = function(e) { e.preventDefault(); soundOn = !soundOn; audioUnlock(); if (soundOn) chime(); renderAgents(); };
+        tg.appendChild(snd);
+        root.appendChild(tg);
+        var list = mk('div'); list.id = 'agent-list'; root.appendChild(list);
+        var now = Date.now();
+        var shown = agentOrder.filter(function(k) { var a = agents[k]; return a.working || a.busy || (a.popAt && now - a.popAt < 3500); })
+          ;
+        if (!shown.length) { list.appendChild(mk('div', 'agent-empty', 'No agents running right now')); return; }
+        shown.forEach(function(k) {
+          var a = agents[k], done = !(a.working || a.busy);
+          var s = agentRowShell(a.color, (followKey === k ? '◉ ' : '') + a.name, a.color), row = s.row;
+          row.className = 'agent-row' + (a.busy ? ' active' : '') + (done ? ' done' + (a.popAt && Date.now() - a.popAt < 600 ? ' pop' : '') : '') + (followKey === k ? ' following' : '');
+          row.title = a.lastNodes.length ? 'Click the row to jump to its last node' : 'No nodes touched yet';
+          s.nm.title = followKey === k ? 'Following: click to stop' : 'Click the name to follow this agent’s cursor';
+          s.nm.style.cursor = 'pointer';
+          s.nm.onclick = function(e) { e.stopPropagation(); toggleFollow(k); };
+          var tk = mk('span', 'agent-task', done ? '✓ done · ' + (a.taskRef ? a.taskRef.name : '') : (a.taskRef ? a.taskRef.name + ' — ' : '') + a.task);
+          tk.title = tk.textContent;
+          row.appendChild(tk);
+          row.onclick = function() {
+            if (a.lastNodes.length) parent.postMessage({ pluginMessage: { type: 'FOCUS_NODES', nodeIds: a.lastNodes } }, '*');
+          };
+          list.appendChild(row);
+        });
+      }
+      function renderHistory(root) {
+        var bar = mk('div', 'agent-row');
+        var pdf = mk('button', 'agent-btn', flashMsg.pdf || 'Generate PDF');
+        pdf.title = 'Download a PDF: which agent did what, per task'; pdf.onclick = function() { requestReport('pdf'); };
+        var cp = mk('button', 'agent-btn', flashMsg.copy || 'Copy report');
+        cp.title = 'Copy the same summary as text'; cp.onclick = function() { requestReport('copy'); };
+        bar.appendChild(pdf); bar.appendChild(cp);
+        root.appendChild(bar);
+        var list = mk('div'); list.id = 'agent-list'; root.appendChild(list);
+        var all = allTasks();
+        if (!all.length && !legacyHist.length) { list.appendChild(mk('div', 'agent-empty', 'No tasks yet')); return; }
+        all.forEach(function(t) {
+          var d = document.createElement('details'); d.className = 'task'; d.open = !!openTasks[t.id];
+          d.ontoggle = function() { openTasks[t.id] = d.open; };
+          var tt = taskTotals(t), running = (t === curTask);
+          var sm = document.createElement('summary');
+          sm.appendChild(mk('span', 'task-name', t.name));
+          sm.appendChild(mk('span', 'agent-time', (running ? 'running · ' : '') + plural(tt.agents, 'agent') + ' · ' + fmtAgo(t.startedAt)));
+          d.appendChild(sm);
+          Object.keys(t.agents).forEach(function(k) {
+            var x = t.agents[k], s = agentRowShell(x.color, x.name), row = s.row;
+            row.style.cursor = 'default';
+            row.appendChild(mk('span', 'agent-task', plural(x.edits, 'edit') + (cmdSummary(x.cmds) ? ' · ' + cmdSummary(x.cmds) : '')));
+            d.appendChild(row);
+          });
+          list.appendChild(d);
+        });
+        if (legacyHist.length) {
+          var ld = document.createElement('details'); ld.className = 'task';
+          var ls = document.createElement('summary'); ls.appendChild(mk('span', 'task-name', 'Earlier sessions (agents)'));
+          ls.appendChild(mk('span', 'agent-time', String(legacyHist.length)));
+          ld.appendChild(ls);
+          legacyHist.forEach(function(h) {
+            var s = agentRowShell(h.color, h.name); s.row.className = 'agent-row past'; s.row.style.cursor = 'default';
+            s.row.appendChild(mk('span', 'agent-task', (h.task || '') + (h.edits ? ' · ' + h.edits + ' edits' : '')));
+            s.row.appendChild(mk('span', 'agent-time', h.at ? fmtAgo(h.at) : ''));
+            ld.appendChild(s.row);
+          });
+          list.appendChild(ld);
+        }
+      }
+function renderReport(root) {
+        var bar = mk('div', 'agent-row');
+        var pdf = mk('button', 'agent-btn', flashMsg.pdf || 'Download PDF');
+        pdf.title = 'Download the report as a PDF'; pdf.onclick = function() { requestReport('pdf'); };
+        var cp = mk('button', 'agent-btn', flashMsg.copy || 'Copy text');
+        cp.title = 'Copy the report as plain text to paste into a message'; cp.onclick = function() { requestReport('copy'); };
+        var rf = mk('button', 'agent-btn', 'Refresh');
+        rf.onclick = function() { requestReport('preview'); };
+        bar.appendChild(pdf); bar.appendChild(cp); bar.appendChild(rf);
+        root.appendChild(bar);
+        var box = mk('div', 'report-preview', lastPreview || 'No report yet. Reports appear after agents have worked on a task.');
+        root.appendChild(box);
+      }
+
+      // Don't rebuild the panel under the user's pointer (it would swallow clicks) and keep list scroll position.
+      var pointerDown = false;
+      document.addEventListener('pointerdown', function() { pointerDown = true; });
+      document.addEventListener('pointerup', function() { pointerDown = false; });
+      document.addEventListener('pointercancel', function() { pointerDown = false; });
+      function renderAgentsNow() {
+        var root = document.getElementById('agent-panel');
+        if (!root) return;
+        if (pointerDown) { setTimeout(renderAgentsNow, 150); return; }
+        var oldList = root.querySelector ? root.querySelector('#agent-list') : null;
+        var keepScroll = oldList ? oldList.scrollTop : 0;
+        root.innerHTML = '';
+        root.classList.add('visible');
+        var running = agentOrder.filter(function(k) { return agents[k].working || agents[k].busy; }).length;
+        var tabs = mk('div', 'agent-tabs');
+        [['figshot', 'fiGapture' + (window.__fsCount && window.__fsCount() ? ' (' + window.__fsCount() + ')' : '')], ['live', 'agents' + (running ? ' (' + running + ')' : '')], ['transfer', 'Transfer'], ['paste', 'Copy/Paste' + (window.__trCount && window.__trCount() ? ' •' : '')]].forEach(function(t) {
+          var b = mk('button', 'agent-tab' + (activeTab === t[0] ? ' on' : ''), t[1]);
+          b.onclick = function() { activeTab = t[0]; if (t[0] === 'report') requestReport('preview'); renderAgentsNow(); };
+          tabs.appendChild(b);
+        });
+        root.appendChild(tabs);
+        if (activeTab === 'live') renderLive(root); else if (activeTab === 'figshot') { if (window.__fsRenderTab) window.__fsRenderTab(root); } else if (activeTab === 'transfer') { if (window.__trRenderTab) window.__trRenderTab(root); } else if (activeTab === 'paste') { if (window.__trRenderPaste) window.__trRenderPaste(root); } else renderLive(root);
+        var newList = root.querySelector ? root.querySelector('#agent-list') : null;
+        if (newList && keepScroll) newList.scrollTop = keepScroll;
+        if (typeof autoResize === 'function') autoResize();
+      }
+      window.__fsRerender = function() { renderAgentsNow(); };
+
+// Method-to-function mapping
       var methodMap = {
         'EXECUTE_CODE': function(params) { return window.executeCode(params.code, params.timeout); },
         'UPDATE_VARIABLE': function(params) { return window.updateVariable(params.variableId, params.modeId, params.value); },
@@ -1491,13 +2234,17 @@
             }
 
             // Call the handler (returns a Promise) and send back the result
+            var agent = agentFor(activeWs, message.params);
+            agentBegin(agent, message.method, message.params);
             Promise.resolve(handler(message.params || {}))
               .then(function(result) {
+                agentEnd(agent, !!(result && result.success === false));
                 if (activeWs.readyState === 1) {
                   activeWs.send(JSON.stringify({ id: message.id, result: result }));
                 }
               })
               .catch(function(err) {
+                agentEnd(agent, true);
                 if (activeWs.readyState === 1) {
                   activeWs.send(JSON.stringify({ id: message.id, error: err.message || String(err) }));
                 }
@@ -1850,6 +2597,14 @@
         var log = document.getElementById('log-panel');
         if (log.classList.contains('visible')) toggleLog();
       }
+    }
+
+    function toggleCollapse() {
+      var collapsed = document.body.classList.toggle('collapsed');
+      var b = document.getElementById('collapse-btn');
+      b.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      b.title = collapsed ? 'Expand' : 'Collapse'; b.setAttribute('aria-label', b.title);
+      autoResize();
     }
 
     function toggleLog() {
@@ -2739,8 +3494,17 @@
           handleResult('GET_ANNOTATION_CATEGORIES', null);
           break;
 
+        case 'REPORT_NAMES':
+          if (window.__agentReportNames) window.__agentReportNames(msg);
+          break;
+
+        case 'HISTORY_DATA':
+          if (window.__agentHistoryLoaded) window.__agentHistoryLoaded(msg.entries, msg.tasks);
+          break;
+
         // Document change events (for cache invalidation via WebSocket)
         case 'DOCUMENT_CHANGE':
+          if (window.__agentOnDocChange) window.__agentOnDocChange(msg.data);
           if (window.__wsForwardDocumentChange) window.__wsForwardDocumentChange(msg.data);
           break;
 
@@ -2765,6 +3529,1467 @@
           break;
       }
     };
+  </script>
+  <script>
+  // =====================================================================
+  // Custom FigShot tab: captures from the browser extension, grouped by
+  // website (accordions). Paste in Figma builds screenshots + design system
+  // natively (no AI involved) and copies the page layers for Cmd+V.
+  // =====================================================================
+  (function () {
+    var PORTS = []; for (var p0 = 9223; p0 <= 9232; p0++) PORTS.push(p0);
+    var captures = [], cache = {}, loading = {}, designCache = {}, off = {}, known = {}, openAcc = {};
+    var busy = false, lastScan = 0, lastCopyHtml = null, fsStatus = '', needCopy = false, armed = null, armTimer = null, listScroll = 0, lastSig = '';
+    function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return 'page'; } }
+    function pathOf(u) { try { var x = new URL(u); return (x.pathname.replace(/\/+$/, '') || '/') + x.search; } catch (e) { return '/'; } }
+    function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+    function rerender() { if (typeof window.__fsRerender === 'function') window.__fsRerender(); }
+    function resize() { try { if (typeof autoResize === 'function') autoResize(); } catch (e) {} }
+    function setStatus(t) { fsStatus = t || ''; var s = document.getElementById('fs-status'); if (s) { s.textContent = fsStatus; resize(); } else rerender(); }
+    function base(c) { return 'http://localhost:' + c.port + '/figshot/captures/' + encodeURIComponent(c.id); }
+    function selected() { return captures.filter(function (c) { return !off[c.id]; }); }
+    function hostsList() { var seen = {}, out = []; captures.forEach(function (c) { var h = hostOf(c.url); if (!seen[h]) { seen[h] = 1; out.push(h); } }); return out; }
+    window.__fsCount = function () { return captures.length; };
+
+    async function poll() {
+      var now = Date.now(), ports = PORTS;
+      if (now - lastScan <= 15000 && Object.keys(known).length) ports = Object.keys(known).map(Number); else lastScan = now;
+      var all = [];
+      await Promise.all(ports.map(async function (port) {
+        try {
+          var r = await fetch('http://localhost:' + port + '/figshot/captures', { signal: AbortSignal.timeout(1500) });
+          if (!r.ok) throw new Error('no relay');
+          var j = await r.json(); known[port] = 1;
+          (j.captures || []).forEach(function (c) { c.port = port; all.push(c); });
+        } catch (e) { delete known[port]; }
+      }));
+      var seen = {}; captures = all.filter(function (c) { if (seen[c.id]) return false; seen[c.id] = 1; return true; });
+      captures.sort(function (a, b) { var ha = hostOf(a.url), hb = hostOf(b.url); return ha === hb ? pathOf(a.url).localeCompare(pathOf(b.url)) : ha.localeCompare(hb); });
+      var sig = captures.map(function (c) { return c.id + ':' + c.sliceCount; }).join('|');
+      if (sig !== lastSig) { lastSig = sig; if (!busy) rerender(); }
+      prefetch();
+    }
+
+    function load(c) {
+      if (cache[c.id]) return Promise.resolve(cache[c.id]);
+      if (!loading[c.id]) loading[c.id] = fetch(base(c)).then(function (r) { return r.json(); }).then(function (j) { cache[c.id] = j; delete loading[c.id]; return j; }).catch(function (e) { delete loading[c.id]; throw e; });
+      return loading[c.id];
+    }
+    function loadDesign(c) {
+      if (cache[c.id]) return Promise.resolve(cache[c.id]);
+      if (designCache[c.id]) return Promise.resolve(designCache[c.id]);
+      return fetch(base(c) + '?part=design').then(function (r) { return r.json(); }).then(function (j) { designCache[c.id] = j; return j; });
+    }
+    // Load ticked captures in the background so the click can copy instantly (the clipboard needs the click's user gesture).
+    function prefetch() { selected().forEach(function (c) { if (!cache[c.id] && !loading[c.id]) load(c).catch(function () {}); }); }
+
+    function b64Text(str) {
+      var bytes = new TextEncoder().encode(str), bin = '';
+      for (var i = 0; i < bytes.length; i += 8192) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+      return btoa(bin);
+    }
+    function b64Bytes(b) { var bin = atob(b), u = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
+    // Figma rejects images larger than 4096px on a side, so each slice is cut into tiles (full resolution is kept).
+    async function tileSlice(sl) {
+      var LIM = 4096;
+      var bytes = b64Bytes(sl.b64);
+      var bm = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+      var w = bm.width, h = bm.height;
+      if (w <= LIM && h <= LIM) { bm.close && bm.close(); return { width: w, height: h, tiles: [{ bytes: bytes, x: 0, y: 0, width: w, height: h }] }; }
+      var tiles = [];
+      for (var y = 0; y < h; y += LIM) {
+        for (var x = 0; x < w; x += LIM) {
+          var tw = Math.min(LIM, w - x), th = Math.min(LIM, h - y);
+          var cv = new OffscreenCanvas(tw, th);
+          cv.getContext('2d').drawImage(bm, x, y, tw, th, 0, 0, tw, th);
+          var blob = await cv.convertToBlob({ type: 'image/png' });
+          tiles.push({ bytes: new Uint8Array(await blob.arrayBuffer()), x: x, y: y, width: tw, height: th });
+        }
+      }
+      bm.close && bm.close();
+      return { width: w, height: h, tiles: tiles };
+    }
+    function layersHtml(sel) {
+      var all = [];
+      sel.forEach(function (c) {
+        var pl = cache[c.id]; if (!pl || !pl.figmaJson) return;
+        var j = JSON.parse(pl.figmaJson);
+        (Array.isArray(j) ? j : [j]).forEach(function (x, n) { x.documentTitle = hostOf(c.url) + pathOf(c.url) + ' — Figma page' + (n ? ' ' + (n + 1) : ''); all.push(x); });
+      });
+      if (!all.length) return null;
+      var at = new Date().toISOString();
+      var meta = { dataType: 'h2d', source: 'chrome-extension', capturedAtIso: at, h2d: { v: 1, origin: { source: 'chrome-extension', capturedAtIso: at } } };
+      return '<span data-metadata="\x3c!--(figmeta)' + b64Text(JSON.stringify(meta)) + '(/figmeta)--\x3e"></span><span data-h2d="\x3c!--(figh2d)' + b64Text(JSON.stringify(all)) + '(/figh2d)--\x3e"></span>';
+    }
+    function copyHtml(html) {
+      var ta = document.createElement('textarea'); ta.value = ' ';
+      ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0'; document.body.appendChild(ta);
+      var ok = false;
+      var h = function (e) { e.clipboardData.setData('text/html', html); e.clipboardData.setData('text/plain', ''); e.preventDefault(); ok = true; };
+      document.addEventListener('copy', h);
+      try { ta.select(); document.execCommand('copy'); } catch (e) {}
+      document.removeEventListener('copy', h); ta.remove();
+      return ok;
+    }
+    function mergeDesigns(ds) {
+      var sum = function (arrays, idf) {
+        var m = {}, order = [];
+        arrays.forEach(function (arr) { (arr || []).forEach(function (x) { var k = idf(x), c = m[k]; if (c) { c.count += x.count; if (x.roles && c.roles) x.roles.forEach(function (r) { if (c.roles.indexOf(r) < 0) c.roles.push(r); }); } else { m[k] = JSON.parse(JSON.stringify(x)); order.push(k); } }); });
+        return order.map(function (k) { return m[k]; }).sort(function (a, b) { return b.count - a.count; });
+      };
+      var vars = {}, icons = {}, iconList = [];
+      ds.forEach(function (d) { Object.assign(vars, d.cssVariablesResolved || {}); (d.icons || []).forEach(function (i) { if (!icons[i.hash]) { icons[i.hash] = 1; iconList.push(i); } }); });
+      return {
+        colors: sum(ds.map(function (d) { return d.colors; }), function (x) { return x.value; }),
+        typography: sum(ds.map(function (d) { return d.typography; }), function (x) { return [x.family, x.size, x.weight, x.lineHeight, x.letterSpacing, x.textTransform].join('|'); }),
+        spacing: sum(ds.map(function (d) { return d.spacing; }), function (x) { return x.value; }),
+        radii: sum(ds.map(function (d) { return d.radii; }), function (x) { return x.value; }),
+        shadows: sum(ds.map(function (d) { return d.shadows; }), function (x) { return x.value; }),
+        components: sum(ds.map(function (d) { return d.components; }), function (x) { return x.type + '|' + x.signature; }),
+        cssVariablesResolved: vars, icons: iconList
+      };
+    }
+
+    async function paste(sel) {
+      if (!sel.length) { setStatus('Tick at least one page first.'); return; }
+      if (busy) return;
+      busy = true; needCopy = false; rerender();
+      try {
+        // 1) Layers -> clipboard FIRST (while the click's user gesture is still valid).
+        var copied = false, hasLayers = false;
+        if (sel.every(function (c) { return cache[c.id]; })) {
+          var html = layersHtml(sel); hasLayers = !!html;
+          if (html) { lastCopyHtml = html; copied = copyHtml(html); }
+        }
+        setStatus('Loading captures…');
+        await Promise.all(sel.map(load));
+        if (!hasLayers) { var h2 = layersHtml(sel); hasLayers = !!h2; if (h2) { lastCopyHtml = h2; copied = copyHtml(h2); } }
+        // 2) Screenshots + design system -> built natively by the plugin.
+        setStatus('Building in Figma…');
+        var byHost = {}, hosts = [];
+        sel.forEach(function (c) { var h = hostOf(c.url); if (!byHost[h]) { byHost[h] = []; hosts.push(h); } byHost[h].push(c); });
+        var sites = [];
+        for (var hi = 0; hi < hosts.length; hi++) {
+          var host = hosts[hi];
+          var everyPage = captures.filter(function (c) { return hostOf(c.url) === host; });
+          var ds = (await Promise.all(everyPage.map(loadDesign))).map(function (x) { return x.design; }).filter(Boolean);
+          var pageList = [];
+          for (var bi = 0; bi < byHost[host].length; bi++) {
+            var c = byHost[host][bi], pl = cache[c.id], sls = [];
+            for (var si = 0; si < (pl.slices || []).length; si++) sls.push(await tileSlice(pl.slices[si]));
+            pageList.push({ path: pathOf(c.url), title: c.title, url: c.url, pageWidth: pl.pageWidth, dpr: pl.dpr, slices: sls });
+          }
+          sites.push({
+            host: host,
+            pages: pageList,
+            design: ds.length ? mergeDesigns(ds) : null,
+            designPages: everyPage.map(function (c) { return { path: pathOf(c.url), title: c.title }; })
+          });
+        }
+        needCopy = hasLayers && !copied;
+        parent.postMessage({ pluginMessage: { type: 'FIGSHOT_BUILD', hasLayers: hasLayers, sites: sites } }, '*');
+      } catch (e) {
+        busy = false; setStatus('Failed: ' + (e && e.message || e)); rerender();
+      }
+    }
+
+    window.addEventListener('message', function (ev) {
+      var m = ev.data && ev.data.pluginMessage;
+      if (!m || m.type !== 'FIGSHOT_BUILD_RESULT') return;
+      busy = false;
+      if (!m.ok) { fsStatus = 'Build failed: ' + m.error; rerender(); return; }
+      var s = m.stats, parts = [];
+      if (s.pages) parts.push(s.pages + ' page section(s) with screenshots');
+      if (s.designs) parts.push(s.designs + ' design system(s): ' + s.variables + ' variables, ' + s.textStyles + ' text styles, ' + s.effectStyles + ' shadows, ' + s.components + ' components');
+      fsStatus = 'Done — ' + (parts.join('; ') || 'nothing to build') + (m.selectedLayers ? (needCopy ? '. Click "Copy layers", then press Cmd+V to paste the page layers into the selected Section.' : '. Now press Cmd+V to paste the page layers into the selected Section.') : '.');
+      rerender();
+    });
+
+    // ---- delete (two-step confirm: first click arms the button, second click within 4s deletes)
+    function arm(key) { armed = key; clearTimeout(armTimer); armTimer = setTimeout(function () { armed = null; rerender(); }, 4000); rerender(); }
+    async function deleteCaps(list) {
+      await Promise.all(list.map(function (c) { return fetch(base(c), { method: 'DELETE' }).catch(function () {}); }));
+      var gone = {}; list.forEach(function (c) { gone[c.id] = 1; delete cache[c.id]; delete designCache[c.id]; delete off[c.id]; });
+      captures = captures.filter(function (c) { return !gone[c.id]; });
+      armed = null; fsStatus = 'Deleted ' + list.length + ' capture(s).'; rerender();
+    }
+    function confirmDelete(key, list) { if (armed === key) deleteCaps(list); else arm(key); }
+
+    // ---- UI (drawn into the Bridge's tab panel)
+    window.__fsRenderTab = function (root) {
+      var wrap = el('div');
+      if (!captures.length) {
+        wrap.appendChild(el('div', 'fs-empty', 'No captures yet. In your browser, open a website and use Full Page (Alt+P) with the fiGapture extension.'));
+        if (fsStatus) wrap.appendChild(el('div', '', fsStatus));
+        root.appendChild(wrap); return;
+      }
+      var sel = selected();
+      var bar = el('div', 'fs-bar');
+      var bAll = el('button', 'fs-btn', sel.length === captures.length ? 'Select none' : 'Select all');
+      bAll.onclick = function () { var allOn = sel.length === captures.length; captures.forEach(function (c) { if (allOn) off[c.id] = 1; else delete off[c.id]; }); if (!allOn) prefetch(); rerender(); };
+      var bSel = el('button', 'fs-btn' + (armed === 'sel' ? ' armed' : ''), armed === 'sel' ? 'Confirm delete?' : 'Delete selected');
+      bSel.disabled = !sel.length; bSel.onclick = function () { confirmDelete('sel', sel); };
+      var bDel = el('button', 'fs-btn' + (armed === 'all' ? ' armed' : ''), armed === 'all' ? 'Confirm delete all?' : 'Delete all');
+      bDel.onclick = function () { confirmDelete('all', captures.slice()); };
+      bar.appendChild(bAll); bar.appendChild(bSel); bar.appendChild(bDel);
+      wrap.appendChild(bar);
+
+      var list = el('div', 'fs-list');
+      list.onscroll = function () { listScroll = list.scrollTop; };
+      hostsList().forEach(function (host) {
+        var pages = captures.filter(function (c) { return hostOf(c.url) === host; });
+        var pageSel = pages.filter(function (c) { return !off[c.id]; });
+        var acc = el('div', 'fs-acc');
+        var head = el('div', 'fs-acc-head');
+        var caret = el('span', 'fs-caret', openAcc[host] ? '▾' : '▸');
+        var cb = el('input'); cb.type = 'checkbox'; cb.checked = pageSel.length === pages.length; cb.indeterminate = pageSel.length > 0 && pageSel.length < pages.length;
+        cb.onclick = function (e) { e.stopPropagation(); pages.forEach(function (c) { if (cb.checked) delete off[c.id]; else off[c.id] = 1; }); prefetch(); rerender(); };
+        head.appendChild(caret); head.appendChild(cb); head.appendChild(el('span', 'fs-dom', host)); head.appendChild(el('span', 'fs-count', String(pages.length)));
+        head.onclick = function () { openAcc[host] = !openAcc[host]; rerender(); };
+        acc.appendChild(head);
+        if (openAcc[host]) {
+          var body = el('div', 'fs-body');
+          pages.forEach(function (c) {
+            var row = el('div', 'fs-row');
+            var pcb = el('input'); pcb.type = 'checkbox'; pcb.checked = !off[c.id];
+            pcb.onchange = function () { if (pcb.checked) delete off[c.id]; else off[c.id] = 1; prefetch(); rerender(); };
+            var xk = 'x:' + c.id;
+            var x = el('button', 'fs-x' + (armed === xk ? ' armed' : ''), armed === xk ? 'sure?' : '×');
+            x.title = 'Delete this capture'; x.onclick = function () { confirmDelete(xk, [c]); };
+            row.appendChild(pcb); row.appendChild(el('span', 'p', pathOf(c.url))); row.appendChild(el('span', 'n', c.sliceCount + ' img')); row.appendChild(x);
+            body.appendChild(row);
+          });
+          var mini = el('button', 'fs-mini', 'Paste in Figma'); mini.disabled = busy;
+          mini.title = 'Paste only the ticked pages of ' + host;
+          mini.onclick = function () { paste(pageSel); };
+          body.appendChild(mini);
+          acc.appendChild(body);
+        }
+        list.appendChild(acc);
+      });
+      wrap.appendChild(list);
+
+      var main = el('button', 'fs-main', 'Paste in Figma' + (sel.length ? ' (' + sel.length + ')' : '')); main.disabled = busy || !sel.length;
+      main.onclick = function () { paste(sel); };
+      wrap.appendChild(main);
+      if (needCopy) { var cp = el('button', 'fs-copy', 'Copy layers (then Cmd+V)'); cp.onclick = function () { if (lastCopyHtml && copyHtml(lastCopyHtml)) { needCopy = false; fsStatus = 'Layers copied — press Cmd+V.'; } else fsStatus = 'Copy failed — click the button again.'; rerender(); }; wrap.appendChild(cp); }
+      var st = el('div'); st.id = 'fs-status'; st.textContent = fsStatus; wrap.appendChild(st);
+      root.appendChild(wrap);
+      list.scrollTop = listScroll;
+    };
+
+    setInterval(poll, 3000); poll();
+  })();
+
+  // =====================================================================
+  // Page Transfer (Custom): "Transfer" tab (automatic rebuild) and
+  // "Copy/Paste" tab (guided native copy). Relay + backups live on the local
+  // MCP server (/transfer/*); data is written to disk before it is rebuilt.
+  // =====================================================================
+  (function () {
+    var PORTS = []; for (var p0 = 9223; p0 <= 9232; p0++) PORTS.push(p0);
+    var port = null, portNative = false, lastErr = '';
+    var me = { fileKey: null, fileName: '', pages: [], words: [], loaded: false };
+    var linkText = '', dest = { key: null, name: '', state: '' }; // state: '', checking, ok, missing, self, bad
+    var off = {}, jobs = [], root = '', status = '', lastSig = '', notified = {}, firstPoll = true;
+    var exportJob = null, importing = null, importWaiters = {}, uiImages = {};
+    var dismissed = {}, armed = null, armTimer = null, showWords = false, nativeSel = null, archiveOff = {}, verifyTimer = null, cancelledJobs = {};
+
+    function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+    function rerender() { if (typeof window.__fsRerender === 'function') window.__fsRerender(); }
+    function resize() { try { if (typeof autoResize === 'function') autoResize(); } catch (e) {} }
+    function post(m) { parent.postMessage({ pluginMessage: m }, '*'); }
+    function url(path) { return 'http://localhost:' + port + path; }
+    function setStatus(t) { status = t || ''; var s = document.getElementById('tr-status'); if (s) { s.textContent = status; resize(); } else rerender(); }
+
+    // ---- sound + toast
+    var audio = null;
+    function beep(kind) {
+      try {
+        audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+        var notes = kind === 'error' ? [330, 220] : [660, 880, 1100], t0 = audio.currentTime;
+        notes.forEach(function (f, i) {
+          var o = audio.createOscillator(), g = audio.createGain();
+          o.type = 'sine'; o.frequency.value = f; o.connect(g); g.connect(audio.destination);
+          g.gain.setValueAtTime(0.0001, t0 + i * 0.16); g.gain.exponentialRampToValueAtTime(0.25, t0 + i * 0.16 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.16 + 0.15);
+          o.start(t0 + i * 0.16); o.stop(t0 + i * 0.16 + 0.16);
+        });
+      } catch (e) {}
+    }
+    function toast(text, kind) {
+      var t = el('div', 'tr-toast' + (kind === 'error' ? ' err' : ''), text);
+      document.body.appendChild(t); setTimeout(function () { t.classList.add('out'); }, 4200); setTimeout(function () { try { t.remove(); } catch (e) {} }, 4800);
+      beep(kind); post({ type: 'TR_NOTIFY', text: text, error: kind === 'error' });
+    }
+
+    // ---- server
+    async function findServer() {
+      // Several servers can run at once (Claude, other AI apps). Prefer one that supports
+      // automatic copy/paste (ping says native:1); an outdated one answers 404 to it.
+      if (port && portNative) { try { var r = await fetch(url('/transfer/ping'), { signal: AbortSignal.timeout(1200) }); if (r.ok) return true; } catch (e) {} }
+      var fallback = null;
+      for (var i = 0; i < PORTS.length; i++) {
+        try { var rr = await fetch('http://localhost:' + PORTS[i] + '/transfer/ping', { signal: AbortSignal.timeout(900) }); if (rr.ok) { var j = await rr.json(); if (j.native) { port = PORTS[i]; portNative = true; root = j.root || root; return true; } if (!fallback) fallback = { p: PORTS[i], root: j.root }; } } catch (e) {}
+      }
+      if (fallback) { port = fallback.p; portNative = false; root = fallback.root || root; return true; }
+      port = null; portNative = false;
+      return false;
+    }
+    async function api(method, path, body, raw, timeoutMs) {
+      var ms = timeoutMs || (method === 'PUT' ? 25000 : 9000);
+      var ctrl = new AbortController();
+      var t = setTimeout(function () { ctrl.abort(); }, ms);
+      try {
+        var r = await fetch(url(path), {
+          method: method,
+          headers: raw ? undefined : { 'Content-Type': 'application/json' },
+          body: body === undefined ? undefined : (raw ? body : JSON.stringify(body)),
+          signal: ctrl.signal
+        });
+        clearTimeout(t);
+        if (!r.ok) throw new Error(method + ' ' + path + ' → ' + r.status);
+        return r;
+      } catch (e) {
+        clearTimeout(t);
+        throw e;
+      }
+    }
+    async function patchJob(id, patch) { var r = await api('POST', '/transfer/jobs/' + id, patch); var j = await r.json(); for (var i = 0; i < jobs.length; i++) if (jobs[i].id === id) jobs[i] = j; return j; }
+    function jobById(id) { for (var i = 0; i < jobs.length; i++) if (jobs[i].id === id) return jobs[i]; return null; }
+
+    // ---- link check
+    function parseKey(s) { var m = String(s || '').match(/figma\.com\/(?:design|file|proto|board|make)\/([A-Za-z0-9]{10,})/); return m ? m[1] : null; }
+    async function verify() {
+      dest.key = parseKey(linkText); dest.name = '';
+      if (!linkText.trim()) { dest.state = ''; rerender(); return; }
+      if (!dest.key) { dest.state = 'bad'; rerender(); return; }
+      if (dest.key === me.fileKey) { dest.state = 'self'; rerender(); return; }
+      dest.state = 'checking'; rerender();
+      if (!(await findServer())) { dest.state = 'missing'; lastErr = 'The Figma Console server is not reachable (restart Claude Desktop).'; rerender(); return; }
+      try {
+        var j = await (await api('GET', '/transfer/files')).json(), hit = null;
+        (j.files || []).forEach(function (f) { if (f.fileKey === dest.key) hit = f; });
+        if (hit) { dest.state = 'ok'; dest.name = hit.fileName; } else dest.state = 'missing';
+      } catch (e) { dest.state = 'missing'; }
+      rerender();
+    }
+    function onLink(v) { linkText = v; clearTimeout(verifyTimer); verifyTimer = setTimeout(verify, 450); }
+
+    // ---- pages
+    function eligible() { return me.pages.filter(function (p) { return !p.divider; }); }
+    function chosen() { return eligible().filter(function (p) { return !off[p.id]; }); }
+    function loadPages() { post({ type: 'TR_LIST' }); }
+
+    // ---- export (source file)
+    async function startTransfer(mode, resumeJobId) {
+      var pages = chosen();
+      if (!resumeJobId && !pages.length) { setStatus('Tick at least one page.'); return; }
+      if (dest.state !== 'ok') { setStatus('Paste the new file’s link and open this plugin in that file first.'); return; }
+      if (!(await findServer())) { setStatus('Server not reachable.'); return; }
+      var id = resumeJobId || ('tr-' + Date.now().toString(36));
+      var existing = resumeJobId ? jobById(resumeJobId) : null;
+      var job = existing || {
+        id: id,
+        mode: mode,
+        srcFileKey: me.fileKey,
+        srcFileName: me.fileName,
+        destFileKey: dest.key,
+        destFileName: dest.name,
+        pages: pages.map(function (p, i) {
+          return {
+            index: i,
+            pageId: p.id,
+            name: p.name,
+            totalItems: p.itemCount || 0,
+            doneItems: 0,
+            status: 'queued'
+          };
+        }),
+        totalItems: pages.reduce(function (sum, p) { return sum + (p.itemCount || 0); }, 0),
+        transferredItems: 0,
+        transferredFiles: 0,
+        exportedChunks: {},
+        importedChunks: {},
+        // Copy/Paste jobs must start in state 'native': the Copy/Paste tab only
+        // shows jobs in that state. Rebuild jobs start in 'exporting'.
+        state: mode === 'native' ? 'native' : 'exporting',
+        exported: 0,
+        importedPages: 0,
+        cursor: 0,
+        step: 'select',
+        message: mode === 'native' ? 'Copy/Paste started' : 'Starting automatic transfer…',
+        createdAt: Date.now()
+      };
+      if (resumeJobId) {
+        delete cancelledJobs[resumeJobId];
+        delete dismissed[resumeJobId];
+      }
+      if (resumeJobId && existing) {
+        existing.state = 'exporting';
+        existing.message = 'Resuming transfer from saved checkpoint…';
+        await patchJob(existing.id, { resume: true, state: 'exporting', message: 'Resuming transfer from checkpoint…' }).catch(function () {});
+      }
+      try {
+        await api('POST', '/transfer/jobs', job);
+        if (!existing) jobs.unshift(job);
+      } catch (e) {
+        setStatus('Could not start: ' + e.message);
+        return;
+      }
+      if (mode === 'native') { nativeSel = null; setStatus(''); rerender(); return; }
+      exportJob = {
+        id: id,
+        total: job.pages.length,
+        pageIndex: job.exported || 0,
+        chunkIndex: 0,
+        pageName: (job.pages[job.exported || 0] || {}).name || '',
+        totalChunks: 0,
+        phase: 'Streaming'
+      };
+      setStatus('');
+      post({ type: 'TR_RESET' });
+      post({
+        type: 'TR_EXPORT',
+        jobId: id,
+        pageIds: job.pages.map(function (p) { return p.pageId; }),
+        resumeChunks: job.exportedChunks || {}
+      });
+      rerender();
+    }
+    async function onPageStart(m) {
+      try {
+        var pageMeta = { type: 'page_meta', name: m.name, backgrounds: m.backgrounds, totalChunks: m.totalChunks, totalItems: m.totalItems };
+        await api('PUT', '/transfer/jobs/' + m.jobId + '/pages/' + m.pageIndex, JSON.stringify(pageMeta), true);
+        if (exportJob) {
+          exportJob.pageIndex = m.pageIndex;
+          exportJob.pageName = m.name;
+          exportJob.totalChunks = m.totalChunks;
+          exportJob.chunkIndex = 0;
+          updateBar();
+        }
+        var curJ = jobById(m.jobId);
+        if (curJ && curJ.pages && curJ.pages[m.pageIndex]) {
+          curJ.pages[m.pageIndex].totalItems = m.totalItems || curJ.pages[m.pageIndex].totalItems;
+          curJ.pages[m.pageIndex].status = 'in_progress';
+          curJ.pages[m.pageIndex].totalChunks = m.totalChunks;
+        }
+        await patchJob(m.jobId, {
+          pages: curJ ? curJ.pages : undefined,
+          message: 'Transferring page ' + (m.pageIndex + 1) + '/' + (exportJob ? exportJob.total : 1) + ' (' + m.name + ') — ' + m.totalItems + ' items'
+        });
+        post({ type: 'TR_ACK' });
+      } catch (e) {
+        await patchJob(m.jobId, { state: 'error', message: 'Page setup failed: ' + e.message }).catch(function () {});
+        exportJob = null; post({ type: 'TR_CANCEL' }); toast('Transfer stopped: ' + e.message, 'error'); rerender();
+      }
+    }
+    async function onChunkData(m) {
+      try {
+        await api('PUT', '/transfer/jobs/' + m.jobId + '/pages/' + m.pageIndex + '_chunk_' + m.chunkIndex, m.json, true);
+        if (exportJob) {
+          exportJob.chunkIndex = m.chunkIndex + 1;
+          updateBar();
+        }
+        var curJ = jobById(m.jobId);
+        if (curJ) {
+          curJ.exportedChunks = curJ.exportedChunks || {};
+          curJ.exportedChunks[m.pageIndex + '_' + m.chunkIndex] = true;
+          if (curJ.pages && curJ.pages[m.pageIndex]) {
+            var pObj = curJ.pages[m.pageIndex];
+            pObj.status = 'in_progress';
+            pObj.doneItems = Math.min(
+              pObj.totalItems || 1,
+              Math.round(((m.chunkIndex + 1) / m.totalChunks) * (pObj.totalItems || m.totalChunks))
+            );
+          }
+          curJ.transferredItems = (curJ.pages || []).reduce(function (sum, p) { return sum + (p.doneItems || 0); }, 0);
+          curJ.transferredFiles = (curJ.transferredFiles || 0) + 1;
+        }
+        await patchJob(m.jobId, {
+          exportedChunks: curJ ? curJ.exportedChunks : undefined,
+          pages: curJ ? curJ.pages : undefined,
+          transferredItems: curJ ? curJ.transferredItems : undefined,
+          transferredFiles: curJ ? curJ.transferredFiles : undefined,
+          message: 'Transferring page ' + (m.pageIndex + 1) + '/' + (exportJob ? exportJob.total : 1) + ' (' + ((exportJob && exportJob.pageName) || '') + ') — item ' + (m.chunkIndex + 1) + '/' + m.totalChunks + (m.name ? ' (' + m.name + ')' : '')
+        });
+        post({ type: 'TR_ACK' });
+      } catch (e) {
+        await patchJob(m.jobId, { state: 'error', message: 'Chunk transfer failed: ' + e.message }).catch(function () {});
+        exportJob = null; post({ type: 'TR_CANCEL' }); toast('Transfer stopped: ' + e.message, 'error'); rerender();
+      }
+    }
+    async function onPageEnd(m) {
+      try {
+        var curJ = jobById(m.jobId);
+        if (curJ && curJ.pages && curJ.pages[m.pageIndex]) {
+          curJ.pages[m.pageIndex].status = 'exported';
+          curJ.pages[m.pageIndex].doneItems = curJ.pages[m.pageIndex].totalItems;
+        }
+        await patchJob(m.jobId, {
+          exported: m.pageIndex + 1,
+          pages: curJ ? curJ.pages : undefined,
+          message: 'Transferred page ' + (m.pageIndex + 1) + '/' + (exportJob ? exportJob.total : 1) + ' (' + m.name + ')'
+        });
+        post({ type: 'TR_ACK' });
+      } catch (e) {
+        post({ type: 'TR_ACK' });
+      }
+    }
+    async function onImageChunk(m) {
+      try {
+        if (m.bytes && m.hash) {
+          await api('PUT', '/transfer/jobs/' + m.jobId + '/img/' + m.hash, m.bytes, true, 20000);
+          var curJ = jobById(m.jobId);
+          if (curJ) {
+            curJ.transferredFiles = (curJ.transferredFiles || 0) + 1;
+            curJ.transferredBytes = (curJ.transferredBytes || 0) + m.bytes.length;
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to upload image ' + m.hash, e);
+      } finally {
+        post({ type: 'TR_IMAGE_ACK', hash: m.hash });
+      }
+    }
+    function findActiveJobId() {
+      if (exportJob && exportJob.id) return exportJob.id;
+      if (importing && importing.id) return importing.id;
+      for (var i = 0; i < jobs.length; i++) {
+        var j = jobs[i];
+        if ((j.srcFileKey === me.fileKey || j.destFileKey === me.fileKey) &&
+            j.mode === 'rebuild' &&
+            j.state !== 'done' && j.state !== 'cancelled' && j.state !== 'error') {
+          return j.id;
+        }
+      }
+      return null;
+    }
+    async function isJobCancelled(jid) {
+      if (!jid) return false;
+      if (cancelledJobs[jid]) return true;
+      try {
+        var r = await api('GET', '/transfer/jobs/' + jid);
+        if (r.ok) {
+          var jData = await r.json();
+          if (jData && (jData.state === 'cancelled' || jData.state === 'error')) {
+            cancelledJobs[jid] = 1;
+            return true;
+          }
+        }
+      } catch (e) {}
+      return false;
+    }
+    async function cancelTransfer(targetId) {
+      var id = targetId || findActiveJobId();
+      post({ type: 'TR_CANCEL' });
+      exportJob = null;
+      importing = null;
+      if (id) {
+        cancelledJobs[id] = 1;
+        dismissed[id] = 1;
+        jobs.forEach(function (j) {
+          if (j.id === id) {
+            j.state = 'cancelled';
+            j.message = 'Transfer cancelled by user.';
+          }
+        });
+        patchJob(id, { state: 'cancelled', message: 'Transfer cancelled by user.' }).catch(function () {});
+      }
+      setStatus('Transfer cancelled.');
+      toast('Transfer cancelled.');
+      rerender();
+    }
+    async function onExportDone(m) {
+      if (m.cancelled) {
+        await patchJob(m.jobId, { state: 'cancelled', message: 'Transfer cancelled.' }).catch(function () {});
+        exportJob = null; toast('Transfer cancelled.'); rerender(); return;
+      }
+      await patchJob(m.jobId, { state: 'exported', message: 'All pages streamed! Rebuilding in destination file…' }).catch(function () {});
+      if (exportJob) exportJob.phase = 'Waiting for destination rebuild';
+      rerender();
+    }
+
+    // ---- import (destination file)
+    function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+    function registerImageInPlugin(hash, buf) {
+      return new Promise(function (resolve) {
+        var timer = setTimeout(function () {
+          window.removeEventListener('message', onRegAck);
+          resolve();
+        }, 8000);
+        var onRegAck = function (ev) {
+          var d = ev.data && ev.data.pluginMessage;
+          if (d && d.type === 'TR_REGISTER_IMAGE_ACK' && d.hash === hash) {
+            clearTimeout(timer);
+            window.removeEventListener('message', onRegAck);
+            resolve();
+          }
+        };
+        window.addEventListener('message', onRegAck);
+        post({ type: 'TR_REGISTER_IMAGE', hash: hash, bytes: buf });
+      });
+    }
+
+    function uiHashes(json) { var out = {}, re = /"imageHash":"([A-Za-z0-9]+)"/g, m; while ((m = re.exec(json))) out[m[1]] = 1; return Object.keys(out); }
+    async function importJob(job) {
+      if (importing) return;
+      if (cancelledJobs[job.id]) return;
+      importing = { id: job.id, pageIndex: 0, chunkIndex: 0, totalPages: job.pages.length, name: '', totalChunks: 0 };
+      uiImages = {};
+      try {
+        await patchJob(job.id, { state: 'importing', message: 'Rebuilding in ' + me.fileName + '…' });
+        post({ type: 'TR_RESET' });
+        rerender();
+
+        for (var pi = 0; pi < job.pages.length; pi++) {
+          if (!importing || cancelledJobs[job.id] || (await isJobCancelled(job.id))) {
+            post({ type: 'TR_CANCEL' });
+            importing = null;
+            rerender();
+            return;
+          }
+          // Checkpoint Resume: If this page was already fully imported, skip it!
+          if (pi < (job.importedPages || 0)) {
+            continue;
+          }
+
+          importing.pageIndex = pi;
+          importing.name = job.pages[pi].name;
+          updateBar();
+
+          // 1. Wait for page meta to be uploaded (with adaptive heartbeat from source)
+          var meta = null;
+          var waitCount = 0;
+          var lastActivityTime = Date.now();
+          while (!meta) {
+            if (!importing || cancelledJobs[job.id]) return;
+            if (waitCount % 3 === 0) {
+              try {
+                var jCheck = await api('GET', '/transfer/jobs/' + job.id);
+                if (jCheck.ok) {
+                  var curState = await jCheck.json();
+                  if (curState.state === 'cancelled' || cancelledJobs[job.id]) {
+                    post({ type: 'TR_CANCEL' });
+                    importing = null;
+                    toast('Transfer was cancelled.');
+                    rerender();
+                    return;
+                  }
+                  if (curState.state === 'error') {
+                    throw new Error(curState.message || 'Transfer failed in source file');
+                  }
+                  if (curState.updatedAt && (Date.now() - curState.updatedAt < 60000)) {
+                    lastActivityTime = Date.now();
+                  }
+                }
+              } catch (eCheck) {
+                if (eCheck.message && eCheck.message.indexOf('Transfer failed') >= 0) throw eCheck;
+              }
+            }
+
+            try {
+              var mResp = await api('GET', '/transfer/jobs/' + job.id + '/pages/' + pi);
+              if (mResp.ok) {
+                var mTxt = await mResp.text();
+                if (mTxt && mTxt.charAt(0) === '{') {
+                  meta = JSON.parse(mTxt);
+                  break;
+                }
+              }
+            } catch (e) {}
+
+            if (Date.now() - lastActivityTime > 180000) {
+              throw new Error('Source file stopped responding while exporting page "' + job.pages[pi].name + '"');
+            }
+            await sleep(400);
+            waitCount++;
+          }
+          if (!meta) throw new Error('Timed out waiting for page "' + job.pages[pi].name + '"');
+
+          importing.totalChunks = meta.totalChunks || 0;
+          updateBar();
+
+          if (!importing || cancelledJobs[job.id] || (await isJobCancelled(job.id))) {
+            post({ type: 'TR_CANCEL' });
+            importing = null;
+            rerender();
+            return;
+          }
+
+          // 2. Start page in destination plugin
+          await new Promise(function (resolve) {
+            var onPStart = function (ev) {
+              var d = ev.data && ev.data.pluginMessage;
+              if (d && (d.type === 'TR_BUILD_PAGE_START_ACK' || d.type === 'TR_FATAL') && d.pageIndex === pi) {
+                window.removeEventListener('message', onPStart);
+                resolve();
+              }
+            };
+            window.addEventListener('message', onPStart);
+            post({ type: 'TR_BUILD_PAGE_START', jobId: job.id, pageIndex: pi, name: meta.name, backgrounds: meta.backgrounds });
+          });
+
+          // 3. Process each chunk
+          for (var ci = 0; ci < meta.totalChunks; ci++) {
+            if (!importing || cancelledJobs[job.id] || (await isJobCancelled(job.id))) {
+              post({ type: 'TR_CANCEL' });
+              importing = null;
+              rerender();
+              return;
+            }
+
+            // Checkpoint Resume: If this chunk was already rebuilt in destination, skip it!
+            if (job.importedChunks && job.importedChunks[pi + '_' + ci]) {
+              continue;
+            }
+
+            importing.chunkIndex = ci;
+            updateBar();
+
+            var chunkData = null;
+            var cWait = 0;
+            var cActivityTime = Date.now();
+            while (!chunkData) {
+              if (!importing || cancelledJobs[job.id]) return;
+              if (cWait % 3 === 0) {
+                try {
+                  var cjCheck = await api('GET', '/transfer/jobs/' + job.id);
+                  if (cjCheck.ok) {
+                    var cCurState = await cjCheck.json();
+                    if (cCurState.state === 'cancelled' || cancelledJobs[job.id]) {
+                      post({ type: 'TR_CANCEL' });
+                      importing = null;
+                      toast('Transfer was cancelled.');
+                      rerender();
+                      return;
+                    }
+                    if (cCurState.state === 'error') {
+                      throw new Error(cCurState.message || 'Transfer failed in source file');
+                    }
+                    if (cCurState.updatedAt && (Date.now() - cCurState.updatedAt < 60000)) {
+                      cActivityTime = Date.now();
+                    }
+                  }
+                } catch (eCj) {
+                  if (eCj.message && eCj.message.indexOf('Transfer failed') >= 0) throw eCj;
+                }
+              }
+
+              try {
+                var cResp = await api('GET', '/transfer/jobs/' + job.id + '/pages/' + pi + '_chunk_' + ci);
+                if (cResp.ok) {
+                  var cTxt = await cResp.text();
+                  if (cTxt && cTxt.charAt(0) === '{') {
+                    chunkData = cTxt;
+                    break;
+                  }
+                }
+              } catch (e) {}
+
+              if (Date.now() - cActivityTime > 180000) {
+                throw new Error('Source file stopped responding on item ' + (ci + 1) + ' of page "' + meta.name + '"');
+              }
+              await sleep(400);
+              cWait++;
+            }
+            if (!chunkData) throw new Error('Timed out waiting for item ' + (ci + 1) + ' on page "' + meta.name + '"');
+
+            if (!importing || cancelledJobs[job.id] || (await isJobCancelled(job.id))) {
+              post({ type: 'TR_CANCEL' });
+              importing = null;
+              rerender();
+              return;
+            }
+
+            // Download and register any images for this chunk in parallel
+            var hs = uiHashes(chunkData);
+            var needed = hs.filter(function (h) { return !uiImages[h]; });
+            if (needed.length > 0) {
+              var fetched = await Promise.all(needed.map(async function (h) {
+                try {
+                  var imgResp = await api('GET', '/transfer/jobs/' + job.id + '/img/' + h);
+                  if (imgResp.ok) return { hash: h, buf: new Uint8Array(await imgResp.arrayBuffer()) };
+                } catch (eImg) {
+                  console.warn('Could not load image ' + h, eImg);
+                }
+                return null;
+              }));
+              for (var fi = 0; fi < fetched.length; fi++) {
+                if (fetched[fi]) {
+                  await registerImageInPlugin(fetched[fi].hash, fetched[fi].buf);
+                  uiImages[fetched[fi].hash] = 1;
+                }
+              }
+            }
+
+            // Build chunk on canvas
+            await new Promise(function (resolve) {
+              var onChkAck = function (ev) {
+                var d = ev.data && ev.data.pluginMessage;
+                if (d && (d.type === 'TR_BUILD_CHUNK_ACK' || d.type === 'TR_FATAL')) {
+                  window.removeEventListener('message', onChkAck);
+                  resolve();
+                }
+              };
+              window.addEventListener('message', onChkAck);
+              post({ type: 'TR_BUILD_CHUNK', jobId: job.id, pageIndex: pi, chunkIndex: ci, totalChunks: meta.totalChunks, json: chunkData });
+            });
+
+            // Mark chunk as saved to destination
+            job.importedChunks = job.importedChunks || {};
+            job.importedChunks[pi + '_' + ci] = true;
+            if (job.pages && job.pages[pi]) {
+              job.pages[pi].status = 'rebuilding';
+              job.pages[pi].rebuiltChunks = ci + 1;
+              job.pages[pi].doneItems = Math.min(
+                job.pages[pi].totalItems || meta.totalChunks,
+                Math.round(((ci + 1) / meta.totalChunks) * (job.pages[pi].totalItems || meta.totalChunks))
+              );
+            }
+            await patchJob(job.id, {
+              importedChunks: job.importedChunks,
+              pages: job.pages,
+              message: 'Rebuilt item ' + (ci + 1) + '/' + meta.totalChunks + ' on "' + meta.name + '"'
+            }).catch(function () {});
+
+            chunkData = null;
+          }
+
+          if (!importing || cancelledJobs[job.id] || (await isJobCancelled(job.id))) {
+            post({ type: 'TR_CANCEL' });
+            importing = null;
+            rerender();
+            return;
+          }
+
+          // 4. End page in destination plugin
+          await new Promise(function (resolve) {
+            var onPEnd = function (ev) {
+              var d = ev.data && ev.data.pluginMessage;
+              if (d && (d.type === 'TR_BUILD_PAGE_END_ACK' || d.type === 'TR_FATAL')) {
+                window.removeEventListener('message', onPEnd);
+                resolve();
+              }
+            };
+            window.addEventListener('message', onPEnd);
+            post({ type: 'TR_BUILD_PAGE_END', jobId: job.id, pageIndex: pi, name: meta.name });
+          });
+
+          if (job.pages && job.pages[pi]) {
+            job.pages[pi].status = 'done';
+            job.pages[pi].doneItems = job.pages[pi].totalItems;
+          }
+          await patchJob(job.id, {
+            importedPages: pi + 1,
+            pages: job.pages,
+            message: 'Rebuilt page ' + (pi + 1) + '/' + job.pages.length + ' (' + meta.name + ')'
+          });
+        }
+
+        await patchJob(job.id, { state: 'done', message: 'All pages transferred and rebuilt in ' + me.fileName + '.', finishedAt: Date.now() });
+        importing = null;
+        toast('Transfer complete — all pages rebuilt.');
+        notified[job.id] = 1;
+        rerender();
+      } catch (e) {
+        importing = null;
+        if (String(e && e.message || e).indexOf('Cancelled') < 0) {
+          await patchJob(job.id, { state: 'error', message: String(e && e.message || e) }).catch(function () {});
+          toast('Rebuild stopped: ' + (e && e.message || e), 'error');
+        }
+        rerender();
+      }
+    }
+    function addTotals(a, b) { a = a || {}; var o = {}; ['linked', 'detached', 'skipped', 'varMiss', 'styleMiss', 'imgMiss'].forEach(function (k) { o[k] = (a[k] || 0) + (b[k] || 0); }); return o; }
+
+    // ---- archive (source file)
+    function arm(key) { armed = key; clearTimeout(armTimer); armTimer = setTimeout(function () { armed = null; rerender(); }, 4000); rerender(); }
+
+    // ---- polling
+    async function poll() {
+      if (!(await findServer())) { if (jobs.length) { jobs = []; rerender(); } return; }
+      try {
+        var j = await (await api('GET', '/transfer/jobs')).json(); root = j.root || root;
+        var list = j.jobs || [];
+        if (firstPoll) { list.forEach(function (x) { if (x.state === 'done') notified[x.id] = 1; if (x.mode === 'native') notified['n' + x.id + ':' + x.step + ':' + x.cursor] = 1; }); firstPoll = false; }
+        jobs = list;
+        jobs.forEach(function (x) {
+          if (x.srcFileKey === me.fileKey && x.state === 'done' && !notified[x.id]) { notified[x.id] = 1; toast(x.mode === 'native' ? 'All pages copied across.' : 'Transfer complete — ' + x.pages.length + ' page(s) now in the new file.'); }
+          if (x.mode === 'native' && x.destFileKey === me.fileKey && x.state === 'native') {
+            var k = 'n' + x.id + ':' + x.step + ':' + x.cursor;
+            if (x.step === 'copied' && !notified[k]) { notified[k] = 1; toast('Page "' + (x.pages[x.cursor] || {}).name + '" is copied — click Paste in the Copy/Paste tab.'); }
+          }
+          if (cancelledJobs[x.id]) x.state = 'cancelled';
+          // Abort if active job in this plugin was cancelled or errored
+          if (importing && x.id === importing.id && (x.state === 'cancelled' || x.state === 'error' || cancelledJobs[x.id])) {
+            post({ type: 'TR_CANCEL' });
+            importing = null;
+            toast('Transfer was cancelled.', 'error');
+            rerender();
+            return;
+          }
+          if (exportJob && x.id === exportJob.id && (x.state === 'cancelled' || x.state === 'error' || cancelledJobs[x.id])) {
+            post({ type: 'TR_CANCEL' });
+            exportJob = null;
+            toast('Transfer was cancelled.', 'error');
+            rerender();
+            return;
+          }
+          // destination auto-import
+          if (x.mode === 'rebuild' && x.destFileKey === me.fileKey && (x.state === 'exporting' || x.state === 'exported' || x.state === 'ready') && !importing && me.fileKey && !dismissed[x.id] && !cancelledJobs[x.id]) importJob(x);
+        });
+      } catch (e) {}
+      var sig = jobs.map(function (x) { return [x.id, x.state, x.exported, (x.importedList || []).length, x.importedPages || 0, x.step, x.cursor, x.archived ? 1 : 0, x.message].join(':'); }).join('|') + '|' + (importing ? 'i' : '') + (exportJob ? 'e' : '') + '|' + dest.state;
+      if (sig !== lastSig) { lastSig = sig; rerender(); }
+    }
+
+    // ---- code.js messages
+    window.addEventListener('message', function (ev) {
+      var m = ev.data && ev.data.pluginMessage; if (!m || typeof m.type !== 'string' || m.type.indexOf('TR_') !== 0) return;
+      if (waiters[m.type]) { var wf = waiters[m.type]; delete waiters[m.type]; wf(m); }
+      if (m.type === 'TR_LIST_RESULT') {
+        me.fileKey = m.fileKey; me.fileName = m.fileName; me.pages = m.pages; me.words = m.words; me.loaded = true; rerender();
+      } else if (m.type === 'TR_PROGRESS') {
+        if (m.phase === 'export' && exportJob) { exportJob.index = m.index; exportJob.name = m.name; exportJob.total = m.total; updateBar(); }
+        if (m.phase === 'build' && importing) { importing.index = m.index; importing.name = m.name; importing.done = m.done; importing.nodes = m.total; updateBar(); }
+      } else if (m.type === 'TR_PAGE_START') onPageStart(m);
+      else if (m.type === 'TR_CHUNK_DATA') onChunkData(m);
+      else if (m.type === 'TR_PAGE_END') onPageEnd(m);
+      else if (m.type === 'TR_IMAGE_CHUNK') onImageChunk(m);
+      else if (m.type === 'TR_EXPORT_DONE') onExportDone(m);
+      else if (m.type === 'TR_EXPORT_ERROR') { patchJob(m.jobId, { state: 'error', message: 'Could not read page ' + (m.index + 1) + ': ' + m.error }).catch(function () {}); exportJob = null; toast('Transfer stopped: ' + m.error, 'error'); rerender(); }
+      else if (m.type === 'TR_IMPORT_RESULT') { var w = importWaiters[m.index]; if (w) { delete importWaiters[m.index]; w(m); } }
+      else if (m.type === 'TR_ARCHIVE_RESULT') { if (m.newPages) me.pages = m.newPages; setStatus('Moved ' + m.moved + ' item(s) from ' + m.pages + ' page(s) into "' + m.archiveName + '".'); toast('Archived ' + m.pages + ' page(s).'); rerender(); }
+      else if (m.type === 'TR_DELETE_RESULT') { if (m.pages) me.pages = m.pages; setStatus('Deleted ' + m.deleted + ' page(s).'); toast('Deleted ' + m.deleted + ' page(s).'); rerender(); }
+      else if (m.type === 'TR_NATIVE_RESULT') { nativeSel = m.ok ? { name: m.name, count: m.count } : null; setStatus(m.ok ? '' : m.error); rerender(); }
+      else if (m.type === 'TR_NATIVE_OPENED') { setStatus(m.empty ? 'Page "' + m.name + '" is open and empty — use Edit ▸ Paste now.' : 'Page "' + m.name + '" already has content — pasting adds to it.'); rerender(); }
+      else if (m.type === 'TR_FATAL') { toast('Transfer error: ' + m.error, 'error'); importing = null; exportJob = null; rerender(); }
+    });
+    function updateBar() {
+      var bar = document.getElementById('tr-bar'), lab = document.getElementById('tr-bar-label'); if (!bar || !lab) return;
+      var pct = 0, text = '';
+      if (importing) {
+        var totP = importing.totalPages || importing.total || 1;
+        var pIdx = importing.pageIndex !== undefined ? importing.pageIndex : (importing.index || 0);
+        var chkP = (importing.totalChunks && importing.chunkIndex !== undefined) ? (importing.chunkIndex / importing.totalChunks) : 0;
+        pct = Math.min(100, Math.max(3, ((pIdx + chkP) / totP) * 100));
+        text = 'Rebuilding page ' + (pIdx + 1) + '/' + totP + (importing.name ? ' (' + importing.name + ')' : '') + (importing.totalChunks ? ' — item ' + (importing.chunkIndex + 1) + '/' + importing.totalChunks : '');
+      } else if (exportJob) {
+        var totP2 = exportJob.total || (exportJob.pages ? exportJob.pages.length : 1);
+        var pIdx2 = exportJob.pageIndex !== undefined ? exportJob.pageIndex : (exportJob.index || 0);
+        var chkP2 = (exportJob.totalChunks && exportJob.chunkIndex !== undefined) ? (exportJob.chunkIndex / exportJob.totalChunks) : 0;
+        pct = Math.min(100, Math.max(3, ((pIdx2 + chkP2) / totP2) * 100));
+        text = 'Transferring page ' + (pIdx2 + 1) + '/' + totP2 + (exportJob.pageName ? ' (' + exportJob.pageName + ')' : '') + (exportJob.totalChunks ? ' — item ' + exportJob.chunkIndex + '/' + exportJob.totalChunks : '');
+      }
+      bar.style.width = pct + '%'; if (text) lab.textContent = text;
+    }
+
+    // ---- shared UI pieces
+    function linkBox(wrap) {
+      wrap.appendChild(el('div', 'tr-h', 'New file link'));
+      var inp = el('input', 'tr-in'); inp.type = 'text'; inp.placeholder = 'Paste the new Figma file link…'; inp.value = linkText;
+      inp.oninput = function () { onLink(inp.value); }; wrap.appendChild(inp);
+      var msg = { '': '', checking: 'Checking…', bad: 'That does not look like a Figma file link.', self: 'That is this file. Paste the NEW file’s link.',
+        missing: 'Not found. Open the new file in Figma and run Figma Desktop Bridge there, then it will be detected.' }[dest.state];
+      if (dest.state === 'ok') msg = '✓ Found "' + dest.name + '" — plugin is running there.';
+      var line = el('div', 'tr-msg' + (dest.state === 'ok' ? ' ok' : (dest.state === 'checking' || !dest.state ? '' : ' bad')), msg || '');
+      wrap.appendChild(line);
+    }
+    function pagesBox(wrap) {
+      if (!me.loaded) { wrap.appendChild(el('div', 'fs-empty', 'Reading pages…')); return; }
+      var bar = el('div', 'fs-bar');
+      var elig = eligible(), all = chosen().length === elig.length;
+      var b1 = el('button', 'fs-btn', all ? 'Select none' : 'Select all'); b1.onclick = function () { elig.forEach(function (p) { if (all) off[p.id] = 1; else delete off[p.id]; }); rerender(); };
+      var b2 = el('button', 'fs-btn', 'Refresh'); b2.onclick = loadPages;
+      bar.appendChild(b1); bar.appendChild(b2); wrap.appendChild(bar);
+      var list = el('div', 'fs-list');
+      me.pages.forEach(function (p) {
+        if (p.divider) return;
+        var row = el('div', 'fs-row');
+        var cb = el('input'); cb.type = 'checkbox';
+        cb.checked = !off[p.id]; cb.onchange = function () { if (cb.checked) delete off[p.id]; else off[p.id] = 1; rerender(); };
+        row.appendChild(cb);
+        var nm = el('span', 'p', p.name);
+        row.appendChild(nm);
+        if (p.itemCount !== undefined) {
+          var ic = el('span', 'n', '(' + p.itemCount + (p.itemCount === 1 ? ' item' : ' items') + ')');
+          ic.style.fontSize = '10px';
+          ic.style.opacity = '0.6';
+          row.appendChild(ic);
+        }
+        list.appendChild(row);
+      });
+      wrap.appendChild(list);
+    }
+    function progressBox(wrap, label) {
+      var box = el('div', 'tr-prog'); var track = el('div', 'tr-track'); var bar = el('div', 'tr-fill'); bar.id = 'tr-bar'; track.appendChild(bar);
+      box.appendChild(track); var lab = el('div', 'tr-msg', label || ''); lab.id = 'tr-bar-label'; box.appendChild(lab); wrap.appendChild(box); setTimeout(updateBar, 0);
+    }
+    function postTransferActionBox(wrap, job) {
+      if (job.pagesDeleted) {
+        wrap.appendChild(el('div', 'tr-msg ok', '✓ The ' + job.pages.length + ' transferred page(s) were deleted from this file.'));
+        return;
+      }
+      if (job.archived) {
+        wrap.appendChild(el('div', 'tr-msg ok', '✓ Contents of these ' + job.pages.length + ' page(s) were moved to the Archive page.'));
+        return;
+      }
+      var card = el('div', 'tr-action-card');
+      card.style.cssText = 'margin: 12px 0; padding: 14px; border-radius: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); display: flex; flex-direction: column; gap: 10px;';
+      var h = el('div', 'tr-h', 'What would you like to do with the original pages?');
+      h.style.cssText = 'font-size: 13px; font-weight: 600; color: #fff; margin: 0;';
+      card.appendChild(h);
+      var msg = el('div', 'tr-msg', 'All ' + job.pages.length + ' page(s) remain in this file. You can permanently delete them, move their contents to an Archive page, or keep them as-is:');
+      msg.style.cssText = 'font-size: 12px; color: rgba(255,255,255,0.7); margin: 0;';
+      card.appendChild(msg);
+
+      var ids = job.pages.map(function (p) { return p.pageId; });
+      var btns = el('div', 'tr-btn-group');
+      btns.style.cssText = 'display: flex; flex-direction: column; gap: 8px; margin-top: 4px;';
+
+      // 1. Delete All Transferred Pages
+      var delK = 'delAll_' + job.id;
+      var delBtn = el('button', 'fs-btn' + (armed === delK ? ' armed' : ''));
+      delBtn.style.cssText = armed === delK
+        ? 'background: #e5484d; color: #fff; font-weight: 600; padding: 10px 14px; border-radius: 8px; border: none; cursor: pointer; text-align: left;'
+        : 'background: rgba(229,72,77,0.14); color: #ff8585; border: 1px solid rgba(229,72,77,0.3); font-weight: 600; padding: 10px 14px; border-radius: 8px; cursor: pointer; text-align: left;';
+      delBtn.textContent = armed === delK
+        ? '⚠️ Click again to permanently delete ' + job.pages.length + ' page(s)'
+        : '🗑️ Delete All Transferred Pages (' + job.pages.length + ')';
+      delBtn.onclick = function () {
+        if (armed === delK) {
+          armed = null;
+          post({ type: 'TR_DELETE_PAGES', pageIds: ids });
+          patchJob(job.id, { pagesDeleted: true, message: 'Deleted ' + job.pages.length + ' transferred page(s).' }).then(rerender);
+        } else {
+          arm(delK);
+        }
+      };
+
+      // 2. Move Contents to Archive Page
+      var archK = 'archAll_' + job.id;
+      var archBtn = el('button', 'fs-btn' + (armed === archK ? ' armed' : ''));
+      archBtn.style.cssText = armed === archK
+        ? 'background: #9dba4c; color: #121a06; font-weight: 600; padding: 10px 14px; border-radius: 8px; border: none; cursor: pointer; text-align: left;'
+        : 'background: rgba(157,186,76,0.14); color: #c4d66a; border: 1px solid rgba(157,186,76,0.3); font-weight: 600; padding: 10px 14px; border-radius: 8px; cursor: pointer; text-align: left;';
+      archBtn.textContent = armed === archK
+        ? '✓ Click again to confirm moving to Archive'
+        : '📦 Move Contents to Archive Page (' + job.pages.length + ')';
+      archBtn.onclick = function () {
+        if (armed === archK) {
+          armed = null;
+          post({ type: 'TR_ARCHIVE', pageIds: ids, deleteAfterArchive: true });
+          patchJob(job.id, { archived: true, message: 'Contents of ' + job.pages.length + ' page(s) moved to Archive.' }).then(rerender);
+        } else {
+          arm(archK);
+        }
+      };
+
+      // 3. Keep Pages
+      var keepBtn = el('button', 'fs-btn');
+      keepBtn.style.cssText = 'background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.8); border: 1px solid rgba(255,255,255,0.12); padding: 9px 14px; border-radius: 8px; cursor: pointer; text-align: left; font-size: 12px;';
+      keepBtn.textContent = 'Keep Pages as they are (Done)';
+      keepBtn.onclick = function () {
+        dismissed[job.id] = 1;
+        toast('Pages kept in current file.');
+        rerender();
+      };
+
+      btns.append(delBtn, archBtn, keepBtn);
+      card.appendChild(btns);
+      wrap.appendChild(card);
+    }
+    function when(t) { try { var d = new Date(t); return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } }
+    function renderTransferDashboard(wrap, job, isSource, canResume) {
+      var totalItems = job.totalItems || (job.pages || []).reduce(function (s, p) { return s + (p.totalItems || 0); }, 0);
+      var doneItems = job.transferredItems || 0;
+      if (!isSource) {
+        doneItems = (job.pages || []).reduce(function (s, p) {
+          if (p.status === 'done') return s + (p.totalItems || 0);
+          return s + (p.doneItems || 0);
+        }, 0);
+      }
+      var pct = totalItems > 0 ? Math.min(100, Math.round((doneItems / totalItems) * 100)) : 0;
+      if (job.state === 'done') pct = 100;
+
+      // Header title
+      var titleText = isSource
+        ? 'Transferring to "' + (job.destFileName || 'destination file') + '"'
+        : 'Rebuilding from "' + (job.srcFileName || 'source file') + '"';
+      if (job.state === 'done') titleText = '✓ Transfer Complete';
+      else if (job.state === 'cancelled') titleText = 'Transfer Cancelled';
+      else if (job.state === 'error') titleText = 'Transfer Interrupted';
+      wrap.appendChild(el('div', 'tr-h', titleText));
+
+      // Stat grid: Pages | Items | Files
+      var grid = el('div', 'tr-stat-grid');
+      
+      // Pill 1: Pages
+      var pDone = isSource ? (job.exported || 0) : (job.importedPages || 0);
+      var pill1 = el('div', 'tr-stat-pill');
+      pill1.appendChild(el('div', 'tr-stat-val', pDone + ' / ' + job.pages.length));
+      pill1.appendChild(el('div', 'tr-stat-lbl', 'Pages'));
+      grid.appendChild(pill1);
+
+      // Pill 2: Items
+      var pill2 = el('div', 'tr-stat-pill');
+      pill2.appendChild(el('div', 'tr-stat-val', doneItems + ' / ' + totalItems));
+      pill2.appendChild(el('div', 'tr-stat-lbl', 'Items'));
+      grid.appendChild(pill2);
+
+      // Pill 3: Transferred files / images
+      var pill3 = el('div', 'tr-stat-pill');
+      var fCount = job.transferredFiles || 0;
+      pill3.appendChild(el('div', 'tr-stat-val', fCount + ' files'));
+      pill3.appendChild(el('div', 'tr-stat-lbl', 'Saved to Disk'));
+      grid.appendChild(pill3);
+
+      wrap.appendChild(grid);
+
+      // Overall Progress Bar
+      var progBox = el('div', 'tr-prog');
+      var track = el('div', 'tr-track');
+      var fill = el('div', 'tr-fill');
+      fill.style.width = Math.max(3, pct) + '%';
+      track.appendChild(fill);
+      progBox.appendChild(track);
+      
+      var progMsg = doneItems + ' of ' + totalItems + ' items transferred (' + pct + '%)';
+      if (job.message) progMsg += ' — ' + job.message;
+      progBox.appendChild(el('div', 'tr-msg', progMsg));
+      wrap.appendChild(progBox);
+
+      // Page List Box
+      var listTitle = el('div', 'tr-msg', 'Pages in this transfer:');
+      listTitle.style.fontWeight = '600';
+      listTitle.style.marginTop = '6px';
+      wrap.appendChild(listTitle);
+
+      var pList = el('div', 'tr-page-list');
+      (job.pages || []).forEach(function (p, pIdx) {
+        var itemRow = el('div', 'tr-page-item');
+        var isPActive = (p.status === 'in_progress' || p.status === 'rebuilding' || (isSource && exportJob && exportJob.pageIndex === pIdx) || (!isSource && importing && importing.pageIndex === pIdx));
+        if (isPActive) itemRow.className += ' active';
+
+        var left = el('div', 'tr-page-left');
+        left.appendChild(el('span', 'tr-page-name', (pIdx + 1) + '. ' + p.name));
+        var countText = (p.totalItems || 0) + ' items';
+        if (p.doneItems) countText = p.doneItems + '/' + (p.totalItems || 0) + ' items';
+        left.appendChild(el('span', 'tr-page-count', '(' + countText + ')'));
+        itemRow.appendChild(left);
+
+        // Status badge
+        var badge = el('span', 'tr-badge');
+        if (p.status === 'done' || (pIdx < (isSource ? (job.exported || 0) : (job.importedPages || 0)))) {
+          badge.className += ' done';
+          badge.textContent = '✓ Done';
+        } else if (isPActive) {
+          badge.className += ' active';
+          badge.textContent = isSource ? '⚡ Streaming' : '⚡ Rebuilding';
+        } else if (job.state === 'error' && isPActive) {
+          badge.className += ' error';
+          badge.textContent = '✕ Stopped';
+        } else {
+          badge.className += ' queued';
+          badge.textContent = '⏳ Queued';
+        }
+        itemRow.appendChild(badge);
+        pList.appendChild(itemRow);
+      });
+      wrap.appendChild(pList);
+
+      // Action buttons
+      if (job.state === 'exporting' || job.state === 'importing' || job.state === 'ready') {
+        var cancelBtn = el('button', 'tr-cancel-btn', 'Cancel Transfer');
+        cancelBtn.onclick = function () { cancelTransfer(job.id); };
+        wrap.appendChild(cancelBtn);
+      } else if (job.state === 'error' || job.state === 'cancelled' || canResume) {
+        var resumeBtn = el('button', 'tr-resume-btn', '▶ Resume Transfer from Checkpoint');
+        resumeBtn.onclick = function () {
+          startTransfer('rebuild', job.id);
+        };
+        wrap.appendChild(resumeBtn);
+
+        var dismissBtn = el('button', 'fs-mini', 'Start New Transfer');
+        dismissBtn.onclick = function () {
+          dismissed[job.id] = 1;
+          rerender();
+        };
+        wrap.appendChild(dismissBtn);
+      }
+    }
+
+    function backupsBox(wrap) {
+      var mine = jobs.filter(function (j) { return j.mode === 'rebuild'; });
+      if (!mine.length) return;
+      wrap.appendChild(el('div', 'tr-h', 'Backups'));
+      wrap.appendChild(el('div', 'tr-msg', root || ''));
+      mine.slice(0, 6).forEach(function (j) {
+        var row = el('div', 'tr-job');
+        row.appendChild(el('div', 'tr-jt', (j.srcFileName || '?') + ' → ' + (j.destFileName || '?') + ' · ' + j.pages.length + ' page(s) · ' + when(j.createdAt)));
+        row.appendChild(el('div', 'tr-msg' + (j.state === 'error' ? ' bad' : (j.state === 'done' ? ' ok' : '')), j.state + (j.message ? ' — ' + j.message : '')));
+        var bar = el('div', 'fs-bar');
+        var canExport = j.exported === j.pages.length || j.state === 'ready' || j.state === 'importing' || j.state === 'error' || j.state === 'done';
+        if (canExport && j.exported >= j.pages.length) {
+          var rb = el('button', 'fs-btn', j.destFileKey === me.fileKey && j.state !== 'done' ? 'Resume here' : 'Rebuild here from backup');
+          rb.disabled = !!importing; rb.onclick = function () { var copy = Object.assign({}, j); if (j.destFileKey !== me.fileKey) copy.importedList = []; importJob(copy); }; bar.appendChild(rb);
+        }
+        var dk = 'del' + j.id, del = el('button', 'fs-btn' + (armed === dk ? ' armed' : ''), armed === dk ? 'Delete backup?' : 'Delete');
+        del.onclick = function () { if (armed === dk) { armed = null; api('DELETE', '/transfer/jobs/' + j.id).then(function () { jobs = jobs.filter(function (x) { return x.id !== j.id; }); rerender(); }); } else arm(dk); };
+        bar.appendChild(del); row.appendChild(bar); wrap.appendChild(row);
+      });
+    }
+
+    // ---- Transfer tab (automatic rebuild)
+    window.__trRenderTab = function (rootEl) {
+      var wrap = el('div', 'tr-wrap');
+      if (!me.loaded) loadPages();
+      var running = exportJob || importing;
+      var mine = null; jobs.forEach(function (j) { if (!mine && j.mode === 'rebuild' && j.srcFileKey === me.fileKey && j.state !== 'cancelled' && !dismissed[j.id] && !cancelledJobs[j.id]) mine = j; });
+      var incoming = null; jobs.forEach(function (j) { if (!incoming && j.mode === 'rebuild' && j.destFileKey === me.fileKey && (j.state === 'exporting' || j.state === 'importing' || j.state === 'ready') && !cancelledJobs[j.id]) incoming = j; });
+
+      if (incoming && (importing || incoming.state === 'exporting' || incoming.state === 'ready')) {
+        renderTransferDashboard(wrap, incoming, false, false);
+        rootEl.appendChild(wrap);
+        return;
+      }
+      if (running && exportJob) {
+        var activeJ = jobById(exportJob.id) || mine;
+        if (activeJ) {
+          renderTransferDashboard(wrap, activeJ, true, false);
+          rootEl.appendChild(wrap);
+          return;
+        }
+      }
+      if (mine && (mine.state === 'ready' || mine.state === 'importing' || mine.state === 'exporting' || mine.state === 'exported')) {
+        renderTransferDashboard(wrap, mine, true, false);
+        rootEl.appendChild(wrap);
+        return;
+      }
+      if (mine && mine.state === 'error') {
+        renderTransferDashboard(wrap, mine, true, true);
+        backupsBox(wrap);
+        rootEl.appendChild(wrap);
+        return;
+      }
+      if (mine && mine.state === 'done') {
+        wrap.appendChild(el('div', 'tr-h', '✓ Transfer complete'));
+        var t = mine.totals || {};
+        wrap.appendChild(el('div', 'tr-msg ok', mine.pages.length + ' page(s) in "' + (mine.destFileName || 'new file') + '" · ' + (t.linked || 0) + ' instances linked to the library' + (t.detached ? ' · ' + t.detached + ' detached (library not enabled?)' : '')));
+        if (t.varMiss || t.styleMiss) wrap.appendChild(el('div', 'tr-msg bad', (t.varMiss || 0) + ' variables / ' + (t.styleMiss || 0) + ' styles could not be linked — enable the design-system library in the new file.'));
+        postTransferActionBox(wrap, mine);
+        var again = el('button', 'fs-btn', 'Start another transfer'); again.onclick = function () { dismissed[mine.id] = 1; rerender(); };
+        wrap.appendChild(again); wrap.appendChild(el('div', 'tr-msg', status)); rootEl.appendChild(wrap); return;
+      }
+
+      linkBox(wrap);
+      pagesBox(wrap);
+      var sel = chosen();
+      var go = el('button', 'fs-main', 'Transfer' + (sel.length ? ' (' + sel.length + ')' : '')); go.disabled = !sel.length || dest.state !== 'ok';
+      go.onclick = function () { startTransfer('rebuild'); }; wrap.appendChild(go);
+      wrap.appendChild(el('div', 'tr-msg', 'Instances stay linked to the published design-system library (enable it in the new file first).'));
+      var st = el('div', 'tr-msg'); st.id = 'tr-status'; st.textContent = status; wrap.appendChild(st);
+      backupsBox(wrap);
+      rootEl.appendChild(wrap);
+    };
+
+    // ---- Copy/Paste tab (one-click native copy/paste)
+    // Figma only copies/pastes after a REAL click on its canvas; while the plugin panel has
+    // keyboard focus, Cmd+C / Cmd+V do nothing. So each button:
+    //   Copy:  select the page's items → one real click on empty canvas (left of this panel)
+    //          → re-select (the click may change it) → real Cmd+C → confirm Figma layers
+    //          from this file are on the clipboard → tell the receiver.
+    //   Paste: create/open the page with the same name → real click on the canvas → real
+    //          Cmd+V → count the new items until they match → put them at their original spot.
+    // The clicks and key presses are sent by the local server (macOS Accessibility permission).
+    var waiters = {};
+    var auto = { busy: '', err: '', needsAccess: false, hint: '', partial: null };
+    function ask(msg, reply, ms) {
+      return new Promise(function (res, rej) {
+        var t = setTimeout(function () { delete waiters[reply]; rej(new Error('Figma did not answer in time.')); }, ms || 20000);
+        waiters[reply] = function (m) { clearTimeout(t); res(m); };
+        post(msg);
+      });
+    }
+    function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+    async function postJSON(path, body, ms) { var r = await api('POST', path, body || {}, false, ms || 60000); return r.json(); }
+    function friendly(e) { var t = String(e && e.message || e); return /\/transfer\/native\/.*404/.test(t) ? 'The Figma Console server running now is an older version. Quit and reopen Claude, then try again.' : t; }
+    function outgoing() { var o = null; jobs.forEach(function (j) { if (!o && j.mode === 'native' && j.srcFileKey === me.fileKey && j.state === 'native') o = j; }); return o; }
+    function incoming() { var o = null; jobs.forEach(function (j) { if (!o && j.mode === 'native' && j.destFileKey === me.fileKey && j.state === 'native') o = j; }); return o; }
+    function setHint(t) { auto.hint = t || ''; var h = document.getElementById('tr-auto-hint'); if (h) { h.textContent = auto.hint; resize(); } else rerender(); }
+    function clearAuto() { auto.err = ''; auto.needsAccess = false; auto.partial = null; }
+    function failWith(r, fallback) { auto.err = (r && r.error) || fallback; auto.needsAccess = !!(r && r.needsAccess); if (r && r.accessApp) auto.accessApp = r.accessApp; }
+    function clickPoint(ev) { return { screenX: ev && ev.screenX, screenY: ev && ev.screenY, clientX: ev && ev.clientX, clientY: ev && ev.clientY }; }
+    function setPage(job, idx, patch) { var pages = job.pages.slice(); pages[idx] = Object.assign({}, pages[idx], patch); return pages; }
+
+    // ---- sender: Copy button
+    async function doCopy(mine, ev) {
+      if (auto.busy) return;
+      var pt = clickPoint(ev), idx = mine.cursor, pg = mine.pages[idx];
+      auto.busy = 'copy'; clearAuto(); setHint('Selecting everything on "' + pg.name + '"…');
+      try {
+        // 1) open the page and frame its items, with NOTHING selected (a click on a selected
+        //    frame can hit its resize/padding handles and start editing them).
+        var sel = await ask({ type: 'TR_NATIVE_SELECT', pageId: pg.pageId, clear: true }, 'TR_NATIVE_RESULT', 30000);
+        if (!sel.ok) throw new Error(sel.error || 'Could not open the page.');
+        if (!sel.count) {
+          await patchJob(mine.id, { pages: setPage(mine, idx, { copied: 0 }), step: 'copied', copyInfo: { count: 0, bounds: null, changeCount: 0, empty: true } });
+          toast('"' + pg.name + '" is empty — in ' + mine.destFileName + ' click Paste to create it.');
+          return;
+        }
+        setHint('Clicking the canvas…');
+        var f = await postJSON('/transfer/native/focus', Object.assign({ fileName: me.fileName }, pt), 20000);
+        if (!f.ok) { failWith(f, 'Could not click the canvas.'); return; }
+        // 2) now select everything (selecting through the API keeps the canvas focus)
+        sel = await ask({ type: 'TR_NATIVE_SELECT', pageId: pg.pageId, keepView: true }, 'TR_NATIVE_RESULT', 30000);
+        setHint('Selected ' + sel.count + ' item(s).');
+        setHint('Pressing Cmd+C on ' + sel.count + ' item(s)…');
+        var r = await postJSON('/transfer/native/copy', { fileName: me.fileName, fileKey: me.fileKey }, 60000);
+        if (!r.ok) { failWith(r, 'Copy failed.'); return; }
+        await patchJob(mine.id, { pages: setPage(mine, idx, { copied: sel.count }), step: 'copied', copyInfo: { count: sel.count, bounds: sel.bounds, changeCount: r.changeCount } });
+        setHint('');
+        toast('Copied ' + sel.count + ' item(s) from "' + pg.name + '" — in ' + mine.destFileName + ' click Paste.');
+      } catch (e) { auto.err = friendly(e); }
+      finally { auto.busy = ''; rerender(); }
+    }
+
+    // ---- receiver: Paste button
+    async function advance(inc, count) {
+      var idx = inc.cursor, pg = inc.pages[idx];
+      var pages = setPage(inc, idx, { status: 'done', pasted: count === null ? (pg.copied || 0) : count });
+      var last = idx + 1 >= pages.length;
+      await patchJob(inc.id, last ? { pages: pages, state: 'done', step: 'pasted', copyInfo: null, message: 'All pages pasted' }
+                                  : { pages: pages, cursor: idx + 1, step: 'select', copyInfo: null });
+      clearAuto(); setHint('');
+      toast(last ? 'All ' + pages.length + ' page(s) pasted ✓' : 'Pasted "' + pg.name + '" ✓ — in ' + inc.srcFileName + ' click Copy for the next page.');
+    }
+    async function doPaste(inc, ev) {
+      if (auto.busy) return;
+      var pt = clickPoint(ev), pg = inc.pages[inc.cursor], info = inc.copyInfo || {};
+      auto.busy = 'paste'; clearAuto(); setHint('Creating page "' + pg.name + '"…');
+      try {
+        await ask({ type: 'TR_NATIVE_PREPARE', name: pg.name, bounds: info.bounds }, 'TR_NATIVE_PREPARED', 30000);
+        if (!info.empty) {
+          setHint('Clicking the canvas…');
+          var f = await postJSON('/transfer/native/focus', Object.assign({ fileName: me.fileName }, pt), 20000);
+          if (!f.ok) { failWith(f, 'Could not click the canvas.'); return; }
+          setHint('Pressing Cmd+V…');
+          var r = await postJSON('/transfer/native/paste', { fileName: me.fileName, srcFileKey: inc.srcFileKey, changeCount: info.changeCount || 0 }, 20000);
+          if (!r.ok) {
+            if (r.clipboardChanged) {
+              await patchJob(inc.id, { step: 'select', copyInfo: null });
+              auto.err = (r.error || 'The clipboard changed.') + ' In ' + inc.srcFileName + ' click Copy again.';
+            } else failWith(r, 'Paste failed.');
+            return;
+          }
+          var expected = info.count || 0, count = 0, last = -1, since = Date.now(), deadline = Date.now() + 180000;
+          while (Date.now() < deadline) {
+            await wait(500);
+            count = (await ask({ type: 'TR_NATIVE_COUNT' }, 'TR_NATIVE_COUNTED', 10000)).count;
+            setHint('Pasting… ' + count + ' / ' + expected + ' item(s)');
+            if (count >= expected) break;
+            if (count !== last) { last = count; since = Date.now(); }
+            else if (Date.now() - since > (count ? 6000 : 5000)) break;
+          }
+        }
+        var fin = await ask({ type: 'TR_NATIVE_FINISH', bounds: info.bounds }, 'TR_NATIVE_FINISHED', 20000);
+        if (!info.empty && fin.count < (info.count || 0)) {
+          auto.err = fin.count ? 'Pasted ' + fin.count + ' of ' + info.count + ' item(s) on "' + pg.name + '".'
+                               : 'Nothing was pasted (Figma ignored Cmd+V). Make sure the plugin panel sits over the canvas, then click Paste again.';
+          if (fin.count) auto.partial = { id: inc.id, cursor: inc.cursor, count: fin.count };
+          return;
+        }
+        await advance(inc, fin.count);
+      } catch (e) { auto.err = friendly(e); }
+      finally { auto.busy = ''; rerender(); }
+    }
+
+    // ---- progress: pages done/left and item counts
+    function progressBox(wrap, job) {
+      var done = 0, copiedSum = 0, pastedSum = 0;
+      job.pages.forEach(function (p) { if (p.status === 'done') done++; copiedSum += p.copied || 0; pastedSum += p.pasted || 0; });
+      wrap.appendChild(el('div', 'tr-msg', 'Pages: ' + done + ' done · ' + (job.pages.length - done) + ' left  |  Items: ' + copiedSum + ' copied · ' + pastedSum + ' pasted'));
+      var list = el('div', 'tr-msg'); list.style.maxHeight = '120px'; list.style.overflow = 'auto';
+      job.pages.forEach(function (p, i) {
+        var mark = p.status === 'done' ? '✓' : (i === job.cursor ? '→' : '·');
+        var counts = p.copied !== undefined ? ' — ' + p.copied + ' copied' + (p.pasted !== undefined ? ' / ' + p.pasted + ' pasted' : '') : '';
+        var row = el('div', '', mark + ' ' + p.name + counts);
+        if (p.status === 'done' && p.pasted !== undefined && p.copied !== undefined && p.pasted < p.copied) row.style.color = '#f24822';
+        list.appendChild(row);
+      });
+      wrap.appendChild(list);
+    }
+    function autoBox(wrap) {
+      var h = el('div', 'tr-msg'); h.id = 'tr-auto-hint'; h.textContent = auto.hint; wrap.appendChild(h);
+      if (auto.err) wrap.appendChild(el('div', 'tr-msg bad', auto.err));
+      if (auto.needsAccess) {
+        // macOS checks the figma-console server itself (the "node" program), not Claude.
+        wrap.appendChild(el('div', 'tr-msg', 'One-time setup: System Settings ▸ Privacy & Security ▸ Accessibility — turn on "node" (that is the figma-console server; switching on Claude is not enough), then try again.'));
+        if (auto.accessApp) {
+          var ap = el('div', 'tr-msg', 'If "node" is not in the list, click +, press Cmd+Shift+G and paste: ' + auto.accessApp);
+          ap.style.userSelect = 'text'; ap.style.wordBreak = 'break-all'; wrap.appendChild(ap);
+        }
+        var s = el('button', 'fs-copy', 'Open Accessibility settings'); s.onclick = function () { postJSON('/transfer/native/open-settings', {}, 8000).catch(function () {}); }; wrap.appendChild(s);
+      }
+    }
+
+    window.__trRenderPaste = function (rootEl) {
+      var wrap = el('div', 'tr-wrap');
+      if (!me.loaded) loadPages();
+      var mine = outgoing(), inc = incoming();
+      var doneJob = null; jobs.forEach(function (j) { if (!doneJob && j.mode === 'native' && j.srcFileKey === me.fileKey && j.state === 'done' && !j.archived) doneJob = j; });
+      if (inc) {
+        var pg = inc.pages[inc.cursor], info = inc.copyInfo || {};
+        wrap.appendChild(el('div', 'tr-h', 'Receiving from ' + inc.srcFileName + ' — page ' + (inc.cursor + 1) + '/' + inc.pages.length));
+        if (inc.step === 'copied') {
+          var b = el('button', 'fs-main', auto.busy === 'paste' ? 'Pasting…' : 'Paste "' + pg.name + '"' + (info.count ? ' (' + info.count + ' items)' : ''));
+          b.disabled = !!auto.busy; b.onclick = function (ev) { doPaste(inc, ev); }; wrap.appendChild(b);
+          autoBox(wrap);
+          if (auto.partial && auto.partial.id === inc.id && auto.partial.cursor === inc.cursor) {
+            var ok = el('button', 'fs-copy', 'Keep what arrived and continue'); ok.onclick = function () { advance(inc, auto.partial.count).then(rerender); }; wrap.appendChild(ok);
+          }
+          if (!auto.busy) { var man = el('button', 'fs-btn', 'I pasted it myself'); man.onclick = function () { advance(inc, null).then(rerender); }; wrap.appendChild(man); }
+        } else {
+          wrap.appendChild(el('div', 'tr-msg', 'Waiting — in "' + inc.srcFileName + '" click Copy for "' + pg.name + '".'));
+          autoBox(wrap);
+        }
+        progressBox(wrap, inc);
+        rootEl.appendChild(wrap); return;
+      }
+      if (mine) {
+        var pg2 = mine.pages[mine.cursor];
+        wrap.appendChild(el('div', 'tr-h', 'Page ' + (mine.cursor + 1) + '/' + mine.pages.length + ' — ' + pg2.name));
+        if (mine.step === 'select') {
+          var cb = el('button', 'fs-main', auto.busy === 'copy' ? 'Copying…' : 'Copy page ' + (mine.cursor + 1) + ' — "' + pg2.name + '"');
+          cb.disabled = !!auto.busy; cb.onclick = function (ev) { doCopy(mine, ev); }; wrap.appendChild(cb);
+          autoBox(wrap);
+          if (!auto.busy && auto.err) {
+            var mc = el('button', 'fs-btn', 'I copied it myself'); mc.title = 'After pressing Cmd+C yourself with the page contents selected';
+            mc.onclick = function () { patchJob(mine.id, { step: 'copied', copyInfo: { count: (nativeSel && nativeSel.count) || 0, bounds: null, changeCount: 0, manual: true } }).then(rerender); };
+            wrap.appendChild(mc);
+          }
+        } else if (mine.step === 'copied') {
+          var ci = mine.copyInfo || {};
+          wrap.appendChild(el('div', 'tr-msg ok', ci.empty ? 'Empty page — nothing to copy.' : 'Copied ✓ ' + (ci.count || 0) + ' item(s)'));
+          wrap.appendChild(el('div', 'tr-msg', 'Now in "' + mine.destFileName + '" click Paste. The next Copy button appears here after that.'));
+          autoBox(wrap);
+        }
+        progressBox(wrap, mine);
+        var cn = el('button', 'fs-btn', 'Stop'); cn.onclick = function () { patchJob(mine.id, { state: 'cancelled' }).then(rerender); }; wrap.appendChild(cn);
+        rootEl.appendChild(wrap); return;
+      }
+      if (doneJob) { wrap.appendChild(el('div', 'tr-h', '✓ All pages copied')); progressBox(wrap, doneJob); postTransferActionBox(wrap, doneJob); wrap.appendChild(el('div', 'tr-msg', status)); rootEl.appendChild(wrap); return; }
+      wrap.appendChild(el('div', 'tr-msg', 'One click per side: here you click Copy for each page; in the new file you click Paste. Native copy keeps everything exactly, including library links (enable the library in the new file). Keep this plugin open in both files, with its panel over the canvas.'));
+      linkBox(wrap); pagesBox(wrap);
+      var sel = chosen(); var go = el('button', 'fs-main', 'Start ' + (sel.length ? '(' + sel.length + ' pages)' : '')); go.disabled = !sel.length || dest.state !== 'ok';
+      go.onclick = function () { if (go.disabled) return; go.disabled = true; go.textContent = 'Starting…'; clearAuto(); startTransfer('native').then(function () { return poll(); }).finally(rerender); }; wrap.appendChild(go);
+      var st = el('div', 'tr-msg'); st.id = 'tr-status'; st.textContent = status; wrap.appendChild(st);
+      rootEl.appendChild(wrap);
+    };
+    window.__trCount = function () { var n = 0; jobs.forEach(function (j) { if ((j.destFileKey === me.fileKey && (j.state === 'ready' || j.state === 'importing' || j.state === 'native')) ) n++; }); return n; };
+
+    loadPages(); setInterval(poll, 2500); poll();
+  })();
   </script>
 </body>
 </html>

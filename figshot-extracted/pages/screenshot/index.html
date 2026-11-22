@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>fiGapture — Screenshot</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      /* Hide the preview window's own scrollbars (incl. the zoom-mode gutter) so
+       only the captured content shows; wheel/trackpad scrolling still works. */
+      html,
+      body {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+      html::-webkit-scrollbar,
+      body::-webkit-scrollbar {
+        width: 0;
+        height: 0;
+        display: none;
+      }
+      body {
+        margin: 0;
+        background: #182210;
+        color: #e6edcf;
+        font-family:
+          Inter,
+          -apple-system,
+          system-ui,
+          sans-serif;
+        font-size: 13px;
+      }
+      .bar {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        background: #141c0b;
+        border-bottom: 1px solid rgba(201, 218, 142, 0.16);
+      }
+      .title {
+        font-weight: 600;
+        letter-spacing: 0.01em;
+      }
+      .dims {
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 12px;
+      }
+      .spacer {
+        flex: 1;
+      }
+      button {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 32px;
+        padding: 0 14px;
+        border: none;
+        border-radius: 8px;
+        background: #9dba4c;
+        color: #121a06;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.12s;
+      }
+      button:hover {
+        background: #c9da8e;
+      }
+      button:active {
+        background: #7f9f35;
+      }
+      button.secondary {
+        background: rgba(255, 255, 255, 0.1);
+        color: #e6edcf;
+      }
+      button.secondary:hover {
+        background: rgba(255, 255, 255, 0.16);
+      }
+      .wrap {
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      .shot-stack {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        max-width: 100%;
+        border-radius: 4px;
+        overflow: hidden;
+        box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+        font-size: 0;
+      }
+      .shot-stack img {
+        display: block;
+        width: 100%;
+        height: auto;
+        margin: 0;
+      }
+      .status {
+        padding: 64px 24px;
+        text-align: center;
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 14px;
+      }
+      .notice {
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%) translateY(10px);
+        padding: 9px 18px;
+        border-radius: 10px;
+        background: rgba(24, 24, 27, 0.95);
+        border: 1px solid rgba(34, 197, 94, 0.35);
+        color: #86efac;
+        font-size: 13px;
+        font-weight: 500;
+        line-height: 1.4;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.25s ease, transform 0.25s ease;
+        z-index: 9999;
+        display: none;
+      }
+      .notice.show {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
+      .notice.error {
+        border-color: rgba(239, 68, 68, 0.35);
+        color: #fca5a5;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="bar">
+      <span class="title">fiGapture Screenshot</span>
+      <span class="dims" id="dims"></span>
+      <div class="spacer"></div>
+      <button id="figma">Copy to Figma</button>
+      <button id="dl" class="secondary">Download PNG</button>
+      <button id="dlpdf" class="secondary">Download PDF</button>
+    </div>
+    <div class="status" id="status">Loading screenshot…</div>
+    <div class="notice" id="notice"></div>
+    <div class="wrap"><div class="shot-stack" id="stack"></div></div>
+    <script src="../../src/engine/capture.js"></script>
+    <script src="./screenshot.js"></script>
+  </body>
+</html>

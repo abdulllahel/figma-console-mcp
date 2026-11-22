@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="512" height="512" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22301A"/>
+      <stop offset="1" stop-color="#141C0E"/>
+    </linearGradient>
+    <linearGradient id="olive" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#C4D66A"/>
+      <stop offset="1" stop-color="#8DA634"/>
+    </linearGradient>
+    <mask id="cutH" maskUnits="userSpaceOnUse" x="0" y="0" width="200" height="200">
+      <rect width="200" height="200" fill="#fff"/>
+      <rect x="57" y="58" width="26" height="24" fill="#000"/>
+      <rect x="117" y="118" width="26" height="24" fill="#000"/>
+    </mask>
+    <mask id="cutV" maskUnits="userSpaceOnUse" x="0" y="0" width="200" height="200">
+      <rect width="200" height="200" fill="#fff"/>
+      <rect x="118" y="57" width="24" height="26" fill="#000"/>
+      <rect x="58" y="117" width="24" height="26" fill="#000"/>
+    </mask>
+  </defs>
+  <rect width="256" height="256" rx="58" fill="url(#bg)"/>
+  <g transform="translate(46 46) scale(.82)">
+    <g stroke="url(#olive)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="70" y="18" width="60" height="164" rx="30" mask="url(#cutV)"/>
+      <rect x="18" y="70" width="164" height="60" rx="30" mask="url(#cutH)"/>
+    </g>
+    <circle cx="152" cy="46" r="8.5" fill="url(#olive)"/>
+    <circle cx="48" cy="154" r="8.5" fill="url(#olive)"/>
+  </g>
+</svg>

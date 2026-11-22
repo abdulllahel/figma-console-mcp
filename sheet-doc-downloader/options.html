@@ -1,0 +1,22 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Sheet Doc Downloader</title>
+<style>
+  body { font: 14px system-ui; max-width: 420px; margin: 32px auto; }
+  label { display: block; margin: 16px 0 4px; font-weight: 600; }
+  input, select { width: 100%; padding: 6px; }
+  #ok { color: #188038; height: 1em; }
+</style>
+<h2>Download settings</h2>
+<label for="format">Format (for Docs / Sheets / Slides)</label>
+<select id="format">
+  <option value="md">Markdown (.md) – Docs only, others fall back to PDF</option>
+  <option value="pdf">PDF</option>
+  <option value="docx">Word (.docx) / Excel (.xlsx) / PowerPoint (.pptx)</option>
+  <option value="txt">Plain text</option>
+  <option value="html">HTML</option>
+</select>
+<label for="subfolder">Subfolder inside Downloads (optional)</label>
+<input id="subfolder" placeholder="e.g. BRD-FSD">
+<p id="ok"></p>
+<script src="options.js"></script>

@@ -1,0 +1,48 @@
+.sdd-btn {
+  position: absolute;
+  top: 12px;
+  right: 56px; /* sits just left of the card's copy icon */
+  width: 32px;
+  height: 32px;
+  border: 1px solid #1a73e8;
+  border-radius: 8px;
+  background: #fff;
+  color: #1a73e8;
+  font: 700 12px Roboto, Arial, sans-serif;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 2147483647;
+}
+.sdd-btn:hover { background: #e8f0fe; }
+.sdd-btn:disabled { opacity: 0.5; cursor: progress; }
+
+.sdd-multi {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  padding: 10px 16px;
+  border: 1px solid #1a73e8;
+  border-radius: 8px;
+  background: #1a73e8;
+  color: #fff;
+  font: 600 13px Roboto, Arial, sans-serif;
+  cursor: pointer;
+  z-index: 2147483647;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.sdd-multi:hover { background: #1765cc; }
+.sdd-multi:disabled { opacity: 0.6; cursor: progress; }
+
+.sdd-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #202124;
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font: 14px Roboto, Arial, sans-serif;
+  z-index: 2147483647;
+}
+.sdd-toast.sdd-bad { background: #d93025; }

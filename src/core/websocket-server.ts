@@ -17,8 +17,10 @@ import { WebSocketServer as WSServer, WebSocket } from 'ws';
 import { EventEmitter } from 'events';
 import { createServer as createHttpServer, IncomingMessage, ServerResponse } from 'http';
 import type { Server as HttpServer } from 'http';
-import { readFileSync } from 'fs';
+import { readFileSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync, statSync, realpathSync } from 'fs';
 import { join } from 'path';
+import { homedir } from 'os';
+import { execFile } from 'child_process';
 import { createChildLogger } from './logger.js';
 import { PACKAGE_ROOT } from './resolve-package-root.js';
 import type { ConsoleLogEntry } from './types/index.js';
@@ -239,6 +241,9 @@ export interface ClientConnection {
 }
 
 export class FigmaWebSocketServer extends EventEmitter {
+  private transferMemoryJobs = new Map<string, any>();
+  private transferMemoryPages = new Map<string, Buffer>();
+  private transferMemoryImages = new Map<string, Buffer>();
   private wss: WSServer | null = null;
   private httpServer: HttpServer | null = null;
   /** Named clients indexed by fileKey — each represents a connected Figma file */
@@ -273,6 +278,470 @@ export class FigmaWebSocketServer extends EventEmitter {
     this._startedAt = Date.now();
   }
 
+  // ---- Custom FigShot relay: browser extension -> Desktop Bridge plugin (in-memory) ----
+  private figshotCaptures = new Map<string, any>();
+  private figshotBytes = 0;
+  private static readonly FIGSHOT_MAX_BYTES = 900 * 1024 * 1024;
+
+  /**
+   * Crash-safe JSON response. Serializes BEFORE sending headers (a huge or
+   * circular body can make JSON.stringify throw), and never writes a second
+   * response — writing headers twice throws ERR_HTTP_HEADERS_SENT, which
+   * previously crashed the whole server.
+   */
+  private sendJson(res: ServerResponse, code: number, body: unknown): void {
+    if (res.headersSent || res.writableEnded) return;
+    let payload: string;
+    try {
+      payload = JSON.stringify(body);
+    } catch (e) {
+      code = 500;
+      payload = JSON.stringify({ error: 'Response could not be serialized: ' + String((e as any)?.message || e) });
+    }
+    try {
+      res.writeHead(code, { 'Content-Type': 'application/json' });
+      res.end(payload);
+    } catch (e) {
+      logger.warn({ err: String((e as any)?.message || e) }, 'Failed to send HTTP response');
+    }
+  }
+
+  private readBody(req: IncomingMessage, limit: number): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      req.on('data', (c: Buffer) => {
+        size += c.length;
+        if (size > limit) { reject(new Error('Body too large')); req.destroy(); return; }
+        chunks.push(c);
+      });
+      req.on('end', () => resolve(Buffer.concat(chunks)));
+      req.on('error', reject);
+    });
+  }
+
+  private figshotSummary(c: any) {
+    return {
+      id: c.id, key: c.key, url: c.url, title: c.title, createdAt: c.createdAt,
+      sliceCount: Array.isArray(c.slices) ? c.slices.length : 0,
+      hasLayers: !!c.figmaJson, hasDesign: !!c.design,
+      pageWidth: c.pageWidth, pageHeight: c.pageHeight, dpr: c.dpr, bytes: c._bytes,
+    };
+  }
+
+  /** Returns true when the request belonged to the FigShot relay and was handled. */
+  private handleFigshotRoute(req: IncomingMessage, res: ServerResponse, url: string): boolean {
+    if (!url.startsWith('/figshot/')) return false;
+    const json = (code: number, body: unknown) => this.sendJson(res, code, body);
+    const path = url.split('?')[0];
+
+    if (req.method === 'GET' && path === '/figshot/captures') {
+      json(200, { captures: Array.from(this.figshotCaptures.values()).map(c => this.figshotSummary(c)) });
+      return true;
+    }
+    const m = path.match(/^\/figshot\/captures\/([A-Za-z0-9_\-]+)$/);
+    if (m && req.method === 'GET') {
+      const c = this.figshotCaptures.get(m[1]);
+      if (!c) { json(404, { error: 'unknown capture' }); return true; }
+      if (url.indexOf('part=design') !== -1) { json(200, { id: c.id, url: c.url, title: c.title, design: c.design || null }); return true; }
+      json(200, c);
+      return true;
+    }
+    if (m && req.method === 'DELETE') {
+      const c = this.figshotCaptures.get(m[1]);
+      if (c) { this.figshotBytes -= c._bytes || 0; this.figshotCaptures.delete(m[1]); }
+      json(200, { ok: true });
+      return true;
+    }
+    if (req.method === 'POST' && path === '/figshot/captures') {
+      this.readBody(req, 700 * 1024 * 1024).then(buf => {
+        const c = JSON.parse(buf.toString('utf8'));
+        if (!c || typeof c.id !== 'string' || !/^[A-Za-z0-9_\-]+$/.test(c.id)) { json(400, { error: 'bad id' }); return; }
+        c._bytes = buf.length;
+        // Re-capturing the same URL replaces the older capture.
+        for (const [id, old] of this.figshotCaptures) {
+          if (id === c.id || (c.key && old.key === c.key)) { this.figshotBytes -= old._bytes || 0; this.figshotCaptures.delete(id); }
+        }
+        this.figshotCaptures.set(c.id, c);
+        this.figshotBytes += c._bytes;
+        // Keep memory bounded: drop the oldest captures first.
+        while (this.figshotBytes > FigmaWebSocketServer.FIGSHOT_MAX_BYTES && this.figshotCaptures.size > 1) {
+          const oldest = this.figshotCaptures.keys().next().value as string;
+          this.figshotBytes -= this.figshotCaptures.get(oldest)._bytes || 0;
+          this.figshotCaptures.delete(oldest);
+        }
+        json(200, { ok: true, id: c.id, count: this.figshotCaptures.size });
+      }).catch(err => json(500, { error: String(err && err.message || err) }));
+      return true;
+    }
+    json(404, { error: 'not found' });
+    return true;
+  }
+
+
+  // ---- Page Transfer relay: source file plugin -> disk backup -> destination file plugin ----
+  private static readonly TRANSFER_ROOT = join(homedir(), 'Documents', 'FigShot-Transfer-Backups');
+
+  private transferDir(id: string): string | null {
+    if (!/^[A-Za-z0-9_\-]{3,80}$/.test(id)) return null;
+    return join(FigmaWebSocketServer.TRANSFER_ROOT, id);
+  }
+
+  private readJob(id: string): any | null {
+    if (this.transferMemoryJobs.has(id)) return this.transferMemoryJobs.get(id);
+    const d = this.transferDir(id);
+    if (!d) return null;
+    try { return JSON.parse(readFileSync(join(d, 'job.json'), 'utf8')); } catch { return null; }
+  }
+
+  private writeJob(job: any): void {
+    if (!job || !job.id) return;
+    this.transferMemoryJobs.set(String(job.id), job);
+    try {
+      const d = this.transferDir(String(job.id));
+      if (d) {
+        if (!existsSync(d)) mkdirSync(d, { recursive: true });
+        writeFileSync(join(d, 'job.json'), JSON.stringify(job, null, 2), 'utf8');
+      }
+    } catch (e) {
+      console.warn('Failed to write job to disk', e);
+    }
+  }
+
+  private handleTransferRoute(req: IncomingMessage, res: ServerResponse, url: string): boolean {
+    if (!url.startsWith('/transfer/')) return false;
+    const json = (code: number, body: unknown) => this.sendJson(res, code, body);
+    const fail = (err: unknown) => json(500, { error: String((err as any)?.message || err) });
+    const path = url.split('?')[0];
+    const query = new URLSearchParams(url.includes('?') ? url.split('?')[1] : '');
+    const root = FigmaWebSocketServer.TRANSFER_ROOT;
+
+    if (req.method === 'GET' && path === '/transfer/ping') { json(200, { ok: true, root, native: 1 }); return true; }
+
+    if (req.method === 'GET' && path === '/transfer/files') {
+      const now = Date.now();
+      const files = Array.from(this.clients.entries())
+        .filter(([, c]) => c.ws.readyState === WebSocket.OPEN && (now - c.lastPongAt) < 90000)
+        .map(([fileKey, c]) => ({ fileKey, fileName: c.fileInfo?.fileName || '' }));
+      json(200, { files });
+      return true;
+    }
+
+    if (req.method === 'GET' && path === '/transfer/jobs') {
+      const dest = query.get('dest');
+      const out: any[] = [];
+      for (const job of this.transferMemoryJobs.values()) {
+        if (dest && job.destFileKey !== dest) continue;
+        out.push(job);
+      }
+      try {
+        if (existsSync(root)) for (const name of readdirSync(root)) {
+          if (this.transferMemoryJobs.has(name)) continue;
+          const job = this.readJob(name);
+          if (!job) continue;
+          if (dest && job.destFileKey !== dest) continue;
+          out.push(job);
+        }
+      } catch (e) {}
+      out.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      json(200, { jobs: out.slice(0, 50), root });
+      return true;
+    }
+
+    if (req.method === 'POST' && path === '/transfer/jobs') {
+      this.readBody(req, 5 * 1024 * 1024).then(buf => {
+        const job = JSON.parse(buf.toString('utf8'));
+        if (!job || !this.transferDir(String(job.id))) { json(400, { error: 'bad id' }); return; }
+        job.createdAt = job.createdAt || Date.now();
+        job.state = job.state || 'exporting';
+        this.writeJob(job);
+        json(200, { ok: true, dir: this.transferDir(job.id) });
+      }).catch(fail);
+      return true;
+    }
+
+    const jm = path.match(/^\/transfer\/jobs\/([A-Za-z0-9_\-]+)$/);
+    if (jm) {
+      if (req.method === 'GET') { const j = this.readJob(jm[1]); json(j ? 200 : 404, j || { error: 'unknown job' }); return true; }
+      if (req.method === 'POST') {
+        this.readBody(req, 5 * 1024 * 1024).then(buf => {
+          const cur = this.readJob(jm[1]);
+          if (!cur) { json(404, { error: 'unknown job' }); return; }
+          const patch = JSON.parse(buf.toString('utf8'));
+          if (cur.state === 'cancelled' && patch.state !== 'cancelled' && !patch.resume) {
+            patch.state = 'cancelled';
+          }
+          const next = Object.assign({}, cur, patch, { id: cur.id, updatedAt: Date.now() });
+          this.writeJob(next);
+          json(200, next);
+        }).catch(fail);
+        return true;
+      }
+      if (req.method === 'DELETE') {
+        const d = this.transferDir(jm[1]);
+        try { if (d && existsSync(d)) rmSync(d, { recursive: true, force: true }); json(200, { ok: true }); } catch (e) { fail(e); }
+        return true;
+      }
+    }
+
+    const pm = path.match(/^\/transfer\/jobs\/([A-Za-z0-9_\-]+)\/pages\/([A-Za-z0-9_\-]+)$/);
+    if (pm) {
+      const key = pm[1] + ':' + pm[2];
+      if (req.method === 'PUT') {
+        this.readBody(req, 600 * 1024 * 1024).then(buf => {
+          this.transferMemoryPages.set(key, buf);
+          try {
+            const d = this.transferDir(pm[1]);
+            if (d) {
+              if (!existsSync(d)) mkdirSync(d, { recursive: true });
+              writeFileSync(join(d, 'page-' + pm[2] + '.json'), buf);
+            }
+          } catch (e) {}
+          json(200, { ok: true, bytes: buf.length });
+        }).catch(fail);
+        return true;
+      }
+      if (req.method === 'GET') {
+        const memBuf = this.transferMemoryPages.get(key);
+        if (memBuf) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(memBuf);
+          return true;
+        }
+        const d = this.transferDir(pm[1]);
+        const file = d ? join(d, 'page-' + pm[2] + '.json') : null;
+        if (file && existsSync(file)) {
+          try { const data = readFileSync(file); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(data); return true; } catch {}
+        }
+        json(404, { error: 'no page' });
+        return true;
+      }
+    }
+
+    const im = path.match(/^\/transfer\/jobs\/([A-Za-z0-9_\-]+)\/img\/([A-Za-z0-9]{8,64})$/);
+    if (im) {
+      const key = im[1] + ':' + im[2];
+      if (req.method === 'PUT') {
+        this.readBody(req, 200 * 1024 * 1024).then(buf => {
+          this.transferMemoryImages.set(key, buf);
+          try {
+            const d = this.transferDir(im[1]);
+            if (d) {
+              const imgDir = join(d, 'images');
+              if (!existsSync(imgDir)) mkdirSync(imgDir, { recursive: true });
+              writeFileSync(join(imgDir, im[2] + '.bin'), buf);
+            }
+          } catch (e) {}
+          json(200, { ok: true });
+        }).catch(fail);
+        return true;
+      }
+      if (req.method === 'GET') {
+        const memBuf = this.transferMemoryImages.get(key);
+        if (memBuf) {
+          res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+          res.end(memBuf);
+          return true;
+        }
+        const d = this.transferDir(im[1]);
+        const file = d ? join(d, 'images', im[2] + '.bin') : null;
+        if (file && existsSync(file)) {
+          try { const data = readFileSync(file); res.writeHead(200, { 'Content-Type': 'application/octet-stream' }); res.end(data); return true; } catch {}
+        }
+        json(404, { error: 'no image' });
+        return true;
+      }
+    }
+
+    // ---- Automatic native copy/paste (macOS): press Figma's own Edit ▸ Copy / Edit ▸ Paste ----
+    if (path.startsWith('/transfer/native/')) {
+      // Claude (and other hosts) start this server through a helper that disclaims
+      // responsibility, so macOS asks for Accessibility for THIS binary ("node"),
+      // not for Claude. Tell the plugin exactly which app to switch on.
+      const njson = (code: number, b: any) => json(code, b && b.needsAccess ? { ...b, accessApp: this.accessApp() } : b);
+      const body = () => this.readBody(req, 64 * 1024).then(b => { try { return JSON.parse(b.toString('utf8') || '{}'); } catch { return {}; } });
+      if (req.method === 'GET' && path === '/transfer/native/check') {
+        this.nativeFront('').then(f => njson(200, { ok: !f.needsAccess, platform: process.platform, ...f })).catch(fail);
+        return true;
+      }
+      if (req.method === 'POST' && path === '/transfer/native/open-settings') {
+        execFile('open', ['x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'], () => njson(200, { ok: true }));
+        return true;
+      }
+      if (req.method === 'POST' && path === '/transfer/native/focus') {
+        body().then(b => this.nativeFocus(String(b.fileName || ''), b)).then(r => njson(200, r)).catch(fail);
+        return true;
+      }
+      if (req.method === 'POST' && path === '/transfer/native/copy') {
+        body().then(b => this.nativeCopy(String(b.fileName || ''), String(b.fileKey || ''))).then(r => njson(200, r)).catch(fail);
+        return true;
+      }
+      if (req.method === 'POST' && path === '/transfer/native/paste') {
+        body().then(b => this.nativePaste(String(b.fileName || ''), String(b.srcFileKey || ''), Number(b.changeCount || 0))).then(r => njson(200, r)).catch(fail);
+        return true;
+      }
+    }
+
+    json(404, { error: 'not found' });
+    return true;
+  }
+
+  // ---------- macOS automation helpers for the Copy/Paste tab ----------
+  private run(cmd: string, args: string[], timeoutMs = 15000): Promise<{ out: string; err: string; code: number }> {
+    return new Promise(resolve => {
+      execFile(cmd, args, { timeout: timeoutMs, maxBuffer: 256 * 1024 * 1024 }, (e: any, out, err) => {
+        resolve({ out: String(out || ''), err: String(err || (e && e.message) || ''), code: e ? (typeof e.code === 'number' ? e.code : 1) : 0 });
+      });
+    });
+  }
+
+  /** Path of the program macOS checks for Accessibility (this server's node binary). */
+  private accessApp(): string {
+    try { return realpathSync(process.execPath); } catch { return process.execPath; }
+  }
+
+  private axTrustedOk = false;
+  /** True when macOS lets this server control other apps (Accessibility). Cached once granted. */
+  private async axTrusted(): Promise<boolean> {
+    if (this.axTrustedOk) return true;
+    const r = await this.run('osascript', ['-l', 'JavaScript', '-e', 'ObjC.import("ApplicationServices"); String($.AXIsProcessTrusted())']);
+    if (r.code !== 0) return true; // can't tell: let the real call report its own error
+    this.axTrustedOk = r.out.trim() === 'true';
+    return this.axTrustedOk;
+  }
+
+  private static readonly FIGMA_PROC = 'first process whose bundle identifier is "com.figma.Desktop"';
+
+  /** Is Figma the frontmost app, and is the given file the visible tab? */
+  private async nativeFront(fileName: string): Promise<{ frontmost: boolean; title: string; matches: boolean | null; needsAccess?: boolean; error?: string }> {
+    if (process.platform !== 'darwin') return { frontmost: false, title: '', matches: null, error: 'Automatic copy/paste only works on macOS.' };
+    if (!(await this.axTrusted())) return { frontmost: false, title: '', matches: null, needsAccess: true, error: 'macOS Accessibility permission is needed.' };
+    const r = await this.run('osascript', ['-e',
+      `tell application "System Events" to tell ${FigmaWebSocketServer.FIGMA_PROC}
+        set t to ""
+        if frontmost then get name of menu bar item 1 of menu bar 1
+        try
+          set t to name of front window
+        end try
+        return (frontmost as text) & "\n" & t
+      end tell`]);
+    if (r.code !== 0) {
+      const needsAccess = /assistive access|not allowed to send keystrokes|not allowed assistive|-25211/i.test(r.err);
+      return { frontmost: false, title: '', matches: null, needsAccess, error: needsAccess ? 'macOS Accessibility permission is needed.' : r.err.trim() };
+    }
+    const [front, ...rest] = r.out.trim().split('\n');
+    const title = rest.join('\n').trim();
+    let matches: boolean | null = null;
+    if (fileName && title) {
+      // The title names the focused file. Pick the LONGEST connected file name it contains, so
+      // "Helping Design System" is not mistaken for "Helping" (split view shows both).
+      const names = Array.from(new Set([fileName, ...Array.from(this.clients.values()).map(c => c.fileInfo?.fileName || '')])).filter(Boolean);
+      const hit = names.filter(n => title.includes(n)).sort((a, b) => b.length - a.length)[0];
+      matches = hit ? hit === fileName : null;
+    }
+    return { frontmost: front === 'true', title, matches };
+  }
+
+  /** Send a real Cmd+<key> to Figma, exactly as if it was typed on the keyboard. */
+  private async pressShortcut(key: 'c' | 'v'): Promise<{ ok: boolean; error?: string; needsAccess?: boolean }> {
+    const r = await this.run('osascript', ['-e', `tell application "System Events" to keystroke "${key}" using command down`]);
+    if (r.code === 0) return { ok: true };
+    const needsAccess = /assistive access|not allowed to send keystrokes|not allowed assistive|-25211/i.test(r.err);
+    return { ok: false, needsAccess, error: needsAccess ? 'macOS Accessibility permission is needed.' : 'Could not press Cmd+' + key.toUpperCase() + ': ' + r.err.trim() };
+  }
+
+  /**
+   * Give Figma's canvas keyboard focus with one real mouse click on empty canvas.
+   * Figma only copies/pastes after a real click on the canvas; focus inside the plugin
+   * panel swallows Cmd+C / Cmd+V. The plugin tells us where its panel is on screen
+   * (screen position of the button click minus its position inside the panel); we click
+   * just left of the panel, which is canvas, then put the pointer back where it was.
+   */
+  private async nativeFocus(fileName: string, b: any): Promise<any> {
+    if (process.platform !== 'darwin') return { ok: false, error: 'Automatic copy/paste only works on macOS.' };
+    if (!fileName || typeof b.clientX !== 'number') return { ok: false, error: 'Missing file name or click position.' };
+    const f = await this.nativeFront(fileName);
+    if (f.needsAccess || f.error) return { ok: false, needsAccess: !!f.needsAccess, error: f.error };
+    if (!f.frontmost || f.matches === false) return { ok: false, notFront: true, title: f.title, error: 'Click inside "' + fileName + '" first so it is the active file, then try again.' };
+    const n = (v: any) => (typeof v === 'number' && isFinite(v) ? v : null);
+    const sx = n(b.screenX), sy = n(b.screenY), cx = n(b.clientX), cy = n(b.clientY);
+    const js = `ObjC.import('CoreGraphics');
+      function loc(){ var p=$.CGEventGetLocation($.CGEventCreate(null)); return {x:p.x,y:p.y}; }
+      function post(t,x,y){ var e=$.CGEventCreateMouseEvent(null,t,{x:x,y:y},0); $.CGEventPost(0,e); }
+      var a = loc(), sx = ${sx}, sy = ${sy}, cx = ${cx}, cy = ${cy};
+      // Where was the click? Prefer the event's screen position; fall back to the pointer now.
+      // The pointer is still on the button that was just clicked; the event's own screen
+      // coordinates proved unreliable inside Figma's plugin frame, so use the pointer.
+      var px = a.x, py = a.y;
+      var left = px - (cx || 0), top = py - (cy || 0);
+      var tx = left - 60, ty = top + 40;
+      post(5, tx, ty); delay(0.05);
+      post(1, tx, ty); delay(0.05);
+      post(2, tx, ty); delay(0.08);
+      post(5, a.x, a.y);
+      JSON.stringify({ clicked: {x: tx, y: ty}, panel: {x: left, y: top}, pointer: a, eventScreen: {x: sx, y: sy} });`;
+    const r = await this.run('osascript', ['-l', 'JavaScript', '-e', js]);
+    if (r.code !== 0) {
+      const needsAccess = /assistive access|not allowed|-25211/i.test(r.err);
+      return { ok: false, needsAccess, error: needsAccess ? 'macOS Accessibility permission is needed.' : 'Could not click the canvas: ' + r.err.trim() };
+    }
+    let info: any = {}; try { info = JSON.parse(r.out.trim()); } catch {}
+    await this.sleep(150);
+    return { ok: true, ...info };
+  }
+
+  /** Read the clipboard: change counter plus the Figma file key from Figma's clipboard metadata. */
+  private async readClipboard(): Promise<{ changeCount: number; isFigma: boolean; fileKey: string; bytes: number }> {
+    const r = await this.run('osascript', ['-l', 'JavaScript', '-e',
+      `ObjC.import("AppKit"); var pb = $.NSPasteboard.generalPasteboard; var h = pb.stringForType("public.html"); h = h && !h.isNil() ? ObjC.unwrap(h) : "";
+       var m = h.match(/\\(figmeta\\)([A-Za-z0-9+\\/=]+)\\(\\/figmeta\\)/); var key = "";
+       if (m) { try { var d = $.NSData.alloc.initWithBase64EncodedStringOptions(m[1], 0); var s = ObjC.unwrap($.NSString.alloc.initWithDataEncoding(d, 4)); key = JSON.parse(s).fileKey || ""; } catch (e) {} }
+       JSON.stringify({ changeCount: Number(pb.changeCount), isFigma: h.indexOf("(figma)") >= 0, fileKey: key, bytes: h.length })`]);
+    try { return JSON.parse(r.out.trim()); } catch { return { changeCount: -1, isFigma: false, fileKey: '', bytes: 0 }; }
+  }
+
+  private sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
+
+  private async nativeCopy(fileName: string, fileKey: string): Promise<any> {
+    const f = await this.nativeFront(fileName);
+    if (f.needsAccess || f.error) return { ok: false, needsAccess: !!f.needsAccess, error: f.error };
+    if (!f.frontmost || f.matches === false) return { ok: false, notFront: true, title: f.title, error: 'Click inside "' + fileName + '" first so it is the active file, then try again.' };
+    const before = await this.readClipboard();
+    const k = await this.pressShortcut('c');
+    if (!k.ok) return k;
+    // Big pages take a moment to serialise; wait (max 30 s) for Figma layers to land on the clipboard.
+    const deadline = Date.now() + 30000;
+    while (Date.now() < deadline) {
+      await this.sleep(250);
+      const now = await this.readClipboard();
+      if (now.changeCount !== before.changeCount && !now.isFigma && Date.now() > deadline - 27000) {
+        return { ok: false, notCopied: true, error: 'Cmd+C copied text instead of layers — the canvas did not get focus. Keep the plugin panel over the canvas (not over the side panels) and try again.' };
+      }
+      if (now.changeCount !== before.changeCount && now.isFigma) {
+        if (fileKey && now.fileKey && now.fileKey !== fileKey) return { ok: false, error: 'The clipboard holds layers from a different file — click inside "' + fileName + '" and try again.' };
+        return { ok: true, changeCount: now.changeCount, bytes: now.bytes, fileKey: now.fileKey };
+      }
+      if (now.changeCount === before.changeCount && Date.now() > deadline - 26000) {
+        // Nothing at all after 4 s: Figma ignored Cmd+C (canvas did not get focus).
+        return { ok: false, notCopied: true, error: 'Figma did not copy (the canvas did not get focus). Make sure the plugin panel sits over the canvas, then try again.' };
+      }
+    }
+    return { ok: false, error: 'Copy did not finish within 30 seconds.' };
+  }
+
+  private async nativePaste(fileName: string, srcFileKey: string, changeCount: number): Promise<any> {
+    const f = await this.nativeFront(fileName);
+    if (f.needsAccess || f.error) return { ok: false, needsAccess: !!f.needsAccess, error: f.error };
+    if (!f.frontmost || f.matches === false) return { ok: false, notFront: true, title: f.title, error: 'Click inside "' + fileName + '" first so it is the active file, then click Paste again.' };
+    const clip = await this.readClipboard();
+    if (!clip.isFigma) return { ok: false, clipboardChanged: true, error: 'The clipboard no longer holds Figma layers.' };
+    if (srcFileKey && clip.fileKey && clip.fileKey !== srcFileKey) return { ok: false, clipboardChanged: true, error: 'The clipboard holds layers from another file.' };
+    if (changeCount && clip.changeCount !== changeCount) return { ok: false, clipboardChanged: true, error: 'Something else was copied after the page was copied.' };
+    const k = await this.pressShortcut('v');
+    if (!k.ok) return k;
+    return { ok: true };
+  }
+
   /**
    * Handle HTTP requests on the same port as WebSocket.
    * Serves a JSON `/health` (also at `/`) endpoint with version and connected-file
@@ -283,7 +752,7 @@ export class FigmaWebSocketServer extends EventEmitter {
   private handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
     // CORS headers for Figma plugin iframe (sandboxed, origin: null)
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     if (req.method === 'OPTIONS') {
@@ -293,6 +762,15 @@ export class FigmaWebSocketServer extends EventEmitter {
     }
 
     const url = req.url || '/';
+
+    try {
+      if (this.handleFigshotRoute(req, res, url)) return;
+      if (this.handleTransferRoute(req, res, url)) return;
+    } catch (err) {
+      logger.error({ err: String((err as any)?.message || err), url }, 'FigShot/Transfer route failed');
+      this.sendJson(res, 500, { error: String((err as any)?.message || err) });
+      return;
+    }
 
     // Health/version endpoint
     if (url === '/health' || url === '/') {
@@ -306,6 +784,7 @@ export class FigmaWebSocketServer extends EventEmitter {
         version: SERVER_VERSION,
         clients: this.clients.size,
         connectedClients,
+        figshotCaptures: this.figshotCaptures.size,
         uptime: Math.floor((now - this._startedAt) / 1000),
       }));
       return;

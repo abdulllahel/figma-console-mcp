@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>fiGapture — Stream Download</title>
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --bg: #121a09;
+        --surface: rgba(201, 218, 142, 0.07);
+        --border: rgba(201, 218, 142, 0.18);
+        --accent: #9dba4c;
+        --accent-bg: rgba(157, 186, 76, 0.15);
+        --text: #f1f5e1;
+        --muted: rgba(255, 255, 255, 0.4);
+        --success: #22c55e;
+        --error: #ff6b6b;
+        --radius: 14px;
+      }
+
+      html,
+      body {
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 13px;
+      }
+
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+
+      #card {
+        width: 100%;
+        max-width: 420px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 22px;
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      #logo {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 700;
+        font-size: 14px;
+        letter-spacing: -0.3px;
+      }
+      #logo img {
+        width: 18px;
+        height: 18px;
+      }
+
+      #filename {
+        font-size: 14px;
+        font-weight: 500;
+        word-break: break-word;
+      }
+
+      #status {
+        font-size: 13px;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+      #status.error {
+        color: var(--error);
+      }
+      #status.success {
+        color: var(--success);
+      }
+
+      #bar-track {
+        width: 100%;
+        height: 6px;
+        border-radius: 3px;
+        background: rgba(201, 218, 142, 0.16);
+        overflow: hidden;
+        display: none;
+      }
+      #bar-track.on {
+        display: block;
+      }
+      #bar-fill {
+        height: 100%;
+        width: 0%;
+        background: var(--accent);
+        border-radius: 3px;
+        transition: width 0.2s ease-out;
+      }
+
+      #actions {
+        display: flex;
+        gap: 8px;
+      }
+      button {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--text);
+        font: inherit;
+        font-size: 13px;
+        padding: 8px 14px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: rgba(255, 255, 255, 0.06);
+      }
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #121a06;
+        font-weight: 600;
+      }
+      button.primary:hover {
+        filter: brightness(1.08);
+      }
+      button:disabled {
+        opacity: 0.4;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="card">
+      <div id="logo">
+        <img id="logo-img" alt="" />
+        <span>fiGapture</span>
+      </div>
+      <div id="filename">Preparing stream…</div>
+      <div id="status">Looking up the video manifest…</div>
+      <div id="bar-track"><div id="bar-fill"></div></div>
+      <div id="actions">
+        <button id="btn-cancel" type="button">Cancel</button>
+        <button id="btn-close" type="button" style="display: none">
+          Close
+        </button>
+      </div>
+    </div>
+    <script src="stream.js"></script>
+  </body>
+</html>
