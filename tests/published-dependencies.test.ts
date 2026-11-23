@@ -35,7 +35,9 @@ const WORKER_ONLY = ["@cloudflare/puppeteer", "agents"];
 function runtimeImportsOfLocalEntry(): Map<string, string> {
 	const seen = new Set<string>();
 	const bare = new Map<string, string>();
-	const IMPORT = /(?:^|[\s;])(import|export)\s+(type\s+)?(?:[^'";]*?\sfrom\s*)?['"]([^'"]+)['"]|import\s*\(\s*['"]([^'"]+)['"]\s*\)|require\s*\(\s*['"]([^'"]+)['"]\s*\)/gm;
+	// `import(` / `require(` must not follow `.` or a name character: `ObjC.import("AppKit")`
+	// inside the macOS osascript snippets (src/core/websocket-server.ts) is not a package import.
+	const IMPORT = /(?:^|[\s;])(import|export)\s+(type\s+)?(?:[^'";]*?\sfrom\s*)?['"]([^'"]+)['"]|(?<![\w.$])import\s*\(\s*['"]([^'"]+)['"]\s*\)|(?<![\w.$])require\s*\(\s*['"]([^'"]+)['"]\s*\)/gm;
 
 	const visit = (file: string) => {
 		if (seen.has(file) || !existsSync(file)) return;

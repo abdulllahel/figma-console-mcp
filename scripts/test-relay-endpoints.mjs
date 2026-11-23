@@ -1,6 +1,6 @@
-// Regression test for the FigShot + Transfer relay routes in src/core/websocket-server.ts.
-// Exercises every /transfer/* and /figshot/* endpoint plus the ERR_HTTP_HEADERS_SENT crash case.
-// Uses a throwaway HOME, so it never touches your real ~/Documents/FigShot-Transfer-Backups.
+// Regression test for the fiGapture + Transfer relay routes in src/core/websocket-server.ts.
+// Exercises every /transfer/* and /fiGapture/* endpoint plus the ERR_HTTP_HEADERS_SENT crash case.
+// Uses a throwaway HOME, so it never touches your real ~/Documents/fiGapture-Transfer-Backups.
 //
 // Usage (after `npm run build:local`):
 //   node scripts/test-relay-endpoints.mjs            # tests dist/core/websocket-server.js on port 9333
@@ -58,15 +58,15 @@ await t('missing page 404', 'GET', '/transfer/jobs/job_test1/pages/nope', null, 
 await t('missing image 404', 'GET', '/transfer/jobs/job_test1/img/00000000', null, s => s === 404);
 await t('delete job', 'DELETE', '/transfer/jobs/job_test1', null, (s, b) => s === 200 && J(b).ok);
 await t('transfer unknown route', 'GET', '/transfer/nothing', null, s => s === 404);
-await t('figshot post capture', 'POST', '/figshot/captures', JSON.stringify({ id: 'cap1', key: 'k', url: 'https://x', title: 'X', slices: [1], design: { a: 1 } }), (s, b) => s === 200 && J(b).ok);
-await t('figshot list', 'GET', '/figshot/captures', null, (s, b) => s === 200 && J(b).captures[0].sliceCount === 1);
-await t('figshot get', 'GET', '/figshot/captures/cap1', null, (s, b) => s === 200 && J(b).title === 'X');
-await t('figshot get design', 'GET', '/figshot/captures/cap1?part=design', null, (s, b) => s === 200 && J(b).design.a === 1);
-await t('figshot bad JSON', 'POST', '/figshot/captures', '{bad', s => s === 500);
-await t('figshot delete', 'DELETE', '/figshot/captures/cap1', null, (s, b) => s === 200);
-await t('figshot get missing', 'GET', '/figshot/captures/cap1', null, s => s === 404);
+await t('fiGapture post capture', 'POST', '/fiGapture/captures', JSON.stringify({ id: 'cap1', key: 'k', url: 'https://x', title: 'X', slices: [1], design: { a: 1 } }), (s, b) => s === 200 && J(b).ok);
+await t('fiGapture list', 'GET', '/fiGapture/captures', null, (s, b) => s === 200 && J(b).captures[0].sliceCount === 1);
+await t('fiGapture get', 'GET', '/fiGapture/captures/cap1', null, (s, b) => s === 200 && J(b).title === 'X');
+await t('fiGapture get design', 'GET', '/fiGapture/captures/cap1?part=design', null, (s, b) => s === 200 && J(b).design.a === 1);
+await t('fiGapture bad JSON', 'POST', '/fiGapture/captures', '{bad', s => s === 500);
+await t('fiGapture delete', 'DELETE', '/fiGapture/captures/cap1', null, (s, b) => s === 200);
+await t('fiGapture get missing', 'GET', '/fiGapture/captures/cap1', null, s => s === 404);
 // --- The crash scenario: checkpoint file exists but can't be read ---
-const jd = join(homedir(), 'Documents', 'FigShot-Transfer-Backups', 'job_crash');
+const jd = join(homedir(), 'Documents', 'fiGapture-Transfer-Backups', 'job_crash');
 mkdirSync(join(jd, 'page-p1.json'), { recursive: true });
 mkdirSync(join(jd, 'images', 'abcdef1234.bin'), { recursive: true });
 await t('CRASH CASE: unreadable page checkpoint', 'GET', '/transfer/jobs/job_crash/pages/p1', null, s => typeof s === 'number');

@@ -4,7 +4,7 @@
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhbdr3JNLvQ1BgIXxjKMuCzcRZJt6tttDfyccH8tOKgoMzLbSnXiuJPl4HjqjF3/esamGIvh2+cBu1FynBc8x90mUDPqNJHbMZ7kfKbKVTcyuNxkGekxbqIDc+rTFVTBmKKQg1k8prS3/1QD/YR2BbYdooKA9jUJcCtnv9vV77Y5Yn4FjWbW5kE+LrLquw7ce7QMBPf+Z1tEEaazR797wTlPuC3clQrxTngzOSyJag8PYLXm71+VWpQtqw6dm7Q1duADckFrNeOnwDGJ+7m9T3tvPJIoCK5z41LypEL215gs4PELs8Y3VuUEj3baO3qAgsH5msQZlFqkmxvEcVxkR/QIDAQAB",
   "name": "fiGapture",
   "short_name": "fiGapture",
-  "version": "5.0",
+  "version": "5.1",
   "description": "Captured and exported by fiGapture",
   "author": "Abdullah Al Mamun",
   "minimum_chrome_version": "116",

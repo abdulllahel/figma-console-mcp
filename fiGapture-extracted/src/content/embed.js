@@ -21,29 +21,30 @@
 //    on-screen size after the frame becomes taller), "restore".
 // Everything is restored after the capture is saved.
 // Messages use the same signed channel as the rest of fiGapture
-// (__figshotSecurePost__ / __figshotVerifyEvent__ from configureFigshotFrame).
+// (__fiGaptureSecurePost__ / __fiGaptureVerifyEvent__ from configureFiGaptureFrame).
 (() => {
-  if (window.__figshotEmbedInstalled) return;
-  window.__figshotEmbedInstalled = true;
+  if (window.__fiGaptureEmbedInstalled) return;
+  window.__fiGaptureEmbedInstalled = true;
 
   const MAX_DEPTH = 4;
-  const OWN_ID = /^__fig/; // fiGapture's own UI (toolbar host, toasts, overlays)
+  const OWN_ID = /^__fi[gG]/; // __figma_capture_ext…, __figcap_…, __fiGapture_…
+  // (fiGapture's own UI: toolbar host, toasts, overlays)
   const settle = (ms = 120) => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, ms))));
   const docH = () => Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
   const seen = new Set();
   const fresh = (d) => {
-    if (typeof d.__figshotNonce !== "string" || seen.has(d.__figshotNonce)) return false;
-    seen.add(d.__figshotNonce);
-    setTimeout(() => seen.delete(d.__figshotNonce), 60000);
+    if (typeof d.__fiGaptureNonce !== "string" || seen.has(d.__fiGaptureNonce)) return false;
+    seen.add(d.__fiGaptureNonce);
+    setTimeout(() => seen.delete(d.__fiGaptureNonce), 60000);
     return true;
   };
   const verified = async (ev) => {
     const d = ev.data;
-    if (!d || typeof d !== "object" || typeof d.__figshot !== "string" || !d.__figshot.startsWith("embed-")) return null;
-    if (!window.__figshotVerifyEvent__ || !(await window.__figshotVerifyEvent__(ev))) return null;
+    if (!d || typeof d !== "object" || typeof d.__fiGapture !== "string" || !d.__fiGapture.startsWith("embed-")) return null;
+    if (!window.__fiGaptureVerifyEvent__ || !(await window.__fiGaptureVerifyEvent__(ev))) return null;
     return fresh(d) ? d : null;
   };
-  const post = (win, msg) => window.__figshotSecurePost__ && window.__figshotSecurePost__(win, msg);
+  const post = (win, msg) => window.__fiGaptureSecurePost__ && window.__fiGaptureSecurePost__(win, msg);
   const toWorker = (msg, timeoutMs = 10000) => new Promise((resolve) => {
     const t = setTimeout(() => resolve(null), timeoutMs);
     try {
@@ -119,7 +120,7 @@
           height = Math.max(docH(), sc.getBoundingClientRect().bottom + scrollY);
         }
       }
-      de.setAttribute("data-figshot-embed-frame", "1");
+      de.setAttribute("data-figapture-embed-frame", "1");
       return { height: Math.ceil(height), viewport: innerHeight, width: innerWidth, path: [] };
     }
     if (cmd === "pin") {
@@ -152,7 +153,7 @@
       frameState.heights = null;
       frameState.exempt = null;
       frameState.sub = null;
-      de.removeAttribute("data-figshot-embed-frame");
+      de.removeAttribute("data-figapture-embed-frame");
       return { ok: true };
     }
     return { error: "unknown command" };
@@ -164,11 +165,11 @@
   window.addEventListener("message", async (ev) => {
     const d = await verified(ev);
     if (!d) return;
-    if (d.__figshot === "embed-cmd") {
+    if (d.__fiGapture === "embed-cmd") {
       let res;
       try { res = await frameCmd(d); } catch (e) { res = { error: String((e && e.message) || e) }; }
-      post(ev.source, { __figshot: "embed-reply", reqId: d.reqId, ...res });
-    } else if (d.__figshot === "embed-reply" && pending.has(d.reqId)) {
+      post(ev.source, { __fiGapture: "embed-reply", reqId: d.reqId, ...res });
+    } else if (d.__fiGapture === "embed-reply" && pending.has(d.reqId)) {
       const p = pending.get(d.reqId);
       if (ev.source !== p.win) return;
       pending.delete(d.reqId);
@@ -184,7 +185,7 @@
       const reqId = "emb_" + Math.random().toString(36).slice(2);
       const t = setTimeout(() => { pending.delete(reqId); resolve(null); }, timeoutMs);
       pending.set(reqId, { win, resolve: (d) => { clearTimeout(t); resolve(d); } });
-      Promise.resolve(post(win, { ...extra, __figshot: "embed-cmd", cmd, reqId })).catch(() => {});
+      Promise.resolve(post(win, { ...extra, __fiGapture: "embed-cmd", cmd, reqId })).catch(() => {});
     });
   }
 
@@ -195,7 +196,7 @@
     let best = null, bestArea = 0;
     for (const f of document.querySelectorAll("iframe")) {
       if (!f.contentWindow) continue;
-      if ((f.name || "").startsWith("screen-ruler") || f.closest("[id^='__fig']")) continue; // fiGapture's own preview frames
+      if ((f.name || "").startsWith("screen-ruler") || f.closest("[id^='__fig'], [id^='__fiG']")) continue; // fiGapture's own preview frames
       const cs = getComputedStyle(f);
       if (cs.visibility === "hidden" || cs.display === "none" || +cs.opacity === 0) continue;
       const r = f.getBoundingClientRect();
@@ -224,7 +225,7 @@
         s == null ? el.removeAttribute("style") : el.setAttribute("style", s);
       }
       saved.length = 0;
-      document.documentElement.removeAttribute("data-figshot-embed");
+      document.documentElement.removeAttribute("data-figapture-embed");
     };
     try {
       // 1. Hide the shell (header bars, side panels) and let the iframe become a normal block.
@@ -261,7 +262,7 @@
         // The page clearly lives in the frame; capturing the empty shell would be useless.
         return { blocked: true, msg };
       }
-      document.documentElement.setAttribute("data-figshot-embed", "1");
+      document.documentElement.setAttribute("data-figapture-embed", "1");
 
       // 3. Make the iframe as tall as its content, then keep viewport-sized sections at their on-screen size.
       let h = m.height;
@@ -286,7 +287,7 @@
         if (restored) return;
         restored = true;
         clearTimeout(timer);
-        document.removeEventListener("__figshot_archive_done__", restore);
+        document.removeEventListener("__fiGapture_archive_done__", restore);
         ask(win, "restore", 3000);
         restoreTop();
       };
@@ -299,7 +300,7 @@
         // The screenshots and design scrape finish after the Figma data is copied;
         // the service worker signals the end. Safety net: 3 minutes.
         restoreWhenArchived() {
-          document.addEventListener("__figshot_archive_done__", restore);
+          document.addEventListener("__fiGapture_archive_done__", restore);
           timer = setTimeout(restore, 180000);
         },
       };
@@ -310,5 +311,5 @@
     }
   }
 
-  if (window === window.top) window.__figshotEmbed = { prepare: () => prepare(0), find: findEmbed };
+  if (window === window.top) window.__fiGaptureEmbed = { prepare: () => prepare(0), find: findEmbed };
 })();

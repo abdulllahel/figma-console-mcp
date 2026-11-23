@@ -697,9 +697,9 @@ try { ghostRemoveAll(); } catch (e) {}
 // Listen for requests from UI (e.g., component data requests, write operations)
 figma.ui.onmessage = async (msg) => {
 
-  // Custom FigShot: build screenshots + design system from captures
-  if (msg.type === 'FIGSHOT_BUILD') { await figshotBuild(msg); return; }
-  if (typeof msg.type === 'string' && msg.type.indexOf('FIGSHOT_LAYERS_') === 0) { await figshotLayers(msg); return; }
+  // Custom fiGapture: build screenshots + design system from captures
+  if (msg.type === 'FIGAPTURE_BUILD') { await fiGaptureBuild(msg); return; }
+  if (typeof msg.type === 'string' && msg.type.indexOf('FIGAPTURE_LAYERS_') === 0) { await fiGaptureLayers(msg); return; }
   if (typeof msg.type === 'string' && msg.type.indexOf('TR_') === 0) { await trHandle(msg); return; }
 
   // REPORT_RESOLVE - turn node ids into readable names for the agent report (read-only)
@@ -8001,8 +8001,8 @@ console.log('🌉 [Desktop Bridge] Plugin will stay open until manually closed')
 // UI iframe remains accessible so the in-iframe WebSocket bridge client can keep relaying state to the MCP server
 
 // =====================================================================
-// Custom FigShot: build screenshots + design system from saved captures
-// (called from ui.html: FIGSHOT_BUILD)
+// Custom fiGapture: build screenshots + design system from saved captures
+// (called from ui.html: FIGAPTURE_BUILD)
 // =====================================================================
 var FS_WEIGHT_STYLE = { 100: 'Thin', 200: 'Extra Light', 300: 'Light', 400: 'Regular', 500: 'Medium', 600: 'Semi Bold', 700: 'Bold', 800: 'Extra Bold', 900: 'Black' };
 var FS_INK = { r: 0.09, g: 0.09, b: 0.11, a: 1 };
@@ -8315,11 +8315,21 @@ async function fsBuildDesign(host, d, pages, x, y, stats) {
 // clicks the canvas and presses Cmd+V). PREP makes an empty Section where the
 // layers will land, SELECT selects it (API selection keeps the canvas focus),
 // COUNT reports how much has arrived, FIT sizes the Section around the result.
-async function figshotLayers(msg) {
-  var reply = function (o) { figma.ui.postMessage(Object.assign({ type: 'FIGSHOT_LAYERS_RESULT', op: msg.type }, o)); };
+// Top-level node ids that existed before the automatic paste, per layers Section.
+// Figma does not paste fiGapture layers INTO the selected Section: it creates a new
+// top-level frame ("<site> — Figma page"). Anything new on the page is the paste.
+var fsLayersBefore = {};
+function fsNewTopLevel(sec) {
+  var before = fsLayersBefore[sec.id] || {};
+  return sec.parent.children.filter(function (n) {
+    return n.id !== sec.id && !before[n.id] && !/^⟡/.test(n.name);
+  });
+}
+async function fiGaptureLayers(msg) {
+  var reply = function (o) { figma.ui.postMessage(Object.assign({ type: 'FIGAPTURE_LAYERS_RESULT', op: msg.type }, o)); };
   try {
     var sec = msg.id ? await figma.getNodeByIdAsync(msg.id) : null;
-    if (msg.type === 'FIGSHOT_LAYERS_PREP') {
+    if (msg.type === 'FIGAPTURE_LAYERS_PREP') {
       var page = figma.currentPage, x0 = 0, y0 = 0;
       if (page.children.length) {
         var maxR = -Infinity, minY = Infinity;
@@ -8330,6 +8340,8 @@ async function figshotLayers(msg) {
       sec.name = msg.name || 'Figma layers';
       sec.x = x0; sec.y = y0;
       sec.resizeWithoutConstraints(1600, 1200);
+      var before = {}; page.children.forEach(function (n) { before[n.id] = 1; });
+      fsLayersBefore[sec.id] = before;
       // Nothing selected while the server clicks the canvas (a click on a selected
       // node can grab its handles); the view shows the empty Section.
       figma.currentPage.selection = [];
@@ -8338,13 +8350,18 @@ async function figshotLayers(msg) {
       return;
     }
     if (!sec || sec.removed || sec.type !== 'SECTION') { reply({ ok: false, error: 'The layers Section is gone.' }); return; }
-    if (msg.type === 'FIGSHOT_LAYERS_SELECT') { figma.currentPage.selection = [sec]; reply({ ok: true }); return; }
-    if (msg.type === 'FIGSHOT_LAYERS_COUNT') {
-      var n = 0; try { n = sec.findAll(function () { return true; }).length; } catch (e) { n = sec.children.length; }
-      reply({ ok: true, top: sec.children.length, count: n });
+    if (msg.type === 'FIGAPTURE_LAYERS_SELECT') { figma.currentPage.selection = [sec]; reply({ ok: true }); return; }
+    if (msg.type === 'FIGAPTURE_LAYERS_COUNT') {
+      // Layers inside the Section plus layers in new top-level nodes (where Figma puts the paste).
+      var roots = sec.children.concat(fsNewTopLevel(sec)), n = 0;
+      roots.forEach(function (r) { n += 1; try { if (r.findAll) n += r.findAll(function () { return true; }).length; } catch (e) {} });
+      reply({ ok: true, top: roots.length, count: n });
       return;
     }
-    if (msg.type === 'FIGSHOT_LAYERS_FIT') {
+    if (msg.type === 'FIGAPTURE_LAYERS_FIT') {
+      // Move the pasted top-level frame(s) into the Section (FIT re-positions them below).
+      fsNewTopLevel(sec).forEach(function (n) { sec.appendChild(n); });
+      delete fsLayersBefore[sec.id];
       if (!sec.children.length) { if (msg.removeIfEmpty) sec.remove(); reply({ ok: true, empty: true }); return; }
       var minX = Infinity, minY2 = Infinity, maxX = -Infinity, maxY = -Infinity;
       sec.children.forEach(function (c) { minX = Math.min(minX, c.x); minY2 = Math.min(minY2, c.y); maxX = Math.max(maxX, c.x + c.width); maxY = Math.max(maxY, c.y + c.height); });
@@ -8361,17 +8378,18 @@ async function figshotLayers(msg) {
 }
 
 var fsCreated = [];
-async function figshotBuild(msg) {
+async function fiGaptureBuild(msg) {
   fsCreated = [];
   var stats = { pages: 0, designs: 0, variables: 0, textStyles: 0, effectStyles: 0, components: 0 };
   try {
     await Promise.all(['Regular', 'Medium', 'Semi Bold', 'Bold'].map(function (s) { return figma.loadFontAsync({ family: 'Inter', style: s }); }));
     var page = figma.currentPage;
     var x0 = 0, y0 = 0;
-    // Layers already pasted by the automatic paste: put everything else below them.
+    // Layers already pasted by the automatic paste: put everything else to their right.
     var pasted = msg.layerSectionId ? await figma.getNodeByIdAsync(msg.layerSectionId) : null;
     if (pasted && pasted.type === 'SECTION' && !pasted.removed) {
-      x0 = pasted.x; y0 = pasted.y + pasted.height + 300;
+      // One row, top-aligned, left to right: layers | screenshots | design system.
+      x0 = pasted.x + pasted.width + 200; y0 = pasted.y;
     } else if (page.children.length) {
       pasted = null;
       var maxR = -Infinity, minY = Infinity;
@@ -8385,31 +8403,37 @@ async function figshotBuild(msg) {
       layerSection.x = x0; layerSection.y = rowY;
       layerSection.resizeWithoutConstraints(1600, 1200);
       made.push(layerSection);
-      rowY += 1200 + 300;
+      x0 += 1600 + 200; // same row, to the left of the screenshots
     }
+    // Progress for the panel's loader: one step per page section and per design system.
+    var stepTotal = 0, stepDone = 0;
+    msg.sites.forEach(function (st) { st.pages.forEach(function (pg) { if (pg.slices && pg.slices.length) stepTotal++; }); if (st.design) stepTotal++; });
+    var step = function (label) { figma.ui.postMessage({ type: 'FIGAPTURE_BUILD_PROGRESS', done: stepDone, total: stepTotal, label: label }); };
     for (var si = 0; si < msg.sites.length; si++) {
       var site = msg.sites[si], cx = x0, rowH = 0;
       for (var pi = 0; pi < site.pages.length; pi++) {
         var p = site.pages[pi];
         if (!p.slices || !p.slices.length) continue;
+        step('Placing screenshots — ' + site.host + (p.path || ''));
         var sec = await fsBuildPage(site.host, p, cx, rowY);
-        made.push(sec); stats.pages++;
+        made.push(sec); stats.pages++; stepDone++;
         cx += sec.width + 200; rowH = Math.max(rowH, sec.height);
       }
       if (site.design) {
+        step('Building the design system — ' + site.host);
         var dsec = await fsBuildDesign(site.host, site.design, site.designPages || [], cx, rowY, stats);
-        made.push(dsec); stats.designs++;
+        made.push(dsec); stats.designs++; stepDone++;
         rowH = Math.max(rowH, dsec.height);
       }
       rowY += rowH + 300;
     }
     if (made.length) figma.viewport.scrollAndZoomIntoView(made);
     if (layerSection) figma.currentPage.selection = [layerSection];
-    figma.ui.postMessage({ type: 'FIGSHOT_BUILD_RESULT', ok: true, stats: stats, selectedLayers: !!layerSection });
+    figma.ui.postMessage({ type: 'FIGAPTURE_BUILD_RESULT', ok: true, stats: stats, selectedLayers: !!layerSection });
   } catch (e) {
     // Undo a half-finished build so no empty Sections or stray styles are left behind.
     fsCreated.forEach(function (n) { try { n.remove(); } catch (err) { /* already gone */ } });
-    figma.ui.postMessage({ type: 'FIGSHOT_BUILD_RESULT', ok: false, error: String(e && e.message || e), stats: stats });
+    figma.ui.postMessage({ type: 'FIGAPTURE_BUILD_RESULT', ok: false, error: String(e && e.message || e), stats: stats });
   }
 }
 

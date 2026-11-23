@@ -1,4 +1,4 @@
-# FigShot & Figma Desktop Bridge — Complete Handover
+# fiGapture & Figma Desktop Bridge — Complete Handover
 
 Captured websites to editable Figma layers & fault-tolerant cross-file page transfer engine.
 
@@ -12,9 +12,9 @@ This document contains everything needed for a fresh Claude session (or any deve
 
 - **Base version:** this project is the official open-source **figma-console-mcp v1.46.0** (github.com/southleft/figma-console-mcp, released 2026-10-29). As of 2026-11-14 that is still the latest official release — there is nothing newer to merge.
 - **Only 3 files differ from the official v1.46.0** (verified by checksum against the official repo). Everything else is stock:
-  1. `figma-desktop-bridge/code.js` — transfer engine + FigShot paste (plugin main thread)
-  2. `figma-desktop-bridge/ui.html` — Transfer & FigShot tabs, live dashboard (plugin UI)
-  3. `src/core/websocket-server.ts` — `/transfer/*` and `/figshot/*` HTTP relay routes + disk checkpoints
+  1. `figma-desktop-bridge/code.js` — transfer engine + fiGapture paste (plugin main thread)
+  2. `figma-desktop-bridge/ui.html` — Transfer & fiGapture tabs, live dashboard (plugin UI)
+  3. `src/core/websocket-server.ts` — `/transfer/*` and `/fiGapture/*` HTTP relay routes + disk checkpoints
   (`dist/core/websocket-server.js` is the compiled output of #3.)
 - **How it runs:** the Claude desktop app launches the server (`dist/local.js`) as the `figma-console` MCP server. After rebuilding, **fully quit Claude (Cmd+Q) and reopen it**, then reopen the Desktop Bridge plugin in Figma.
 - **Server logs:** Claude desktop → the figma-console error toast → "View logs" (or the MCP logs in Claude's settings). A crash shows as a Node stack trace at the end of the log.
@@ -29,8 +29,8 @@ This document contains everything needed for a fresh Claude session (or any deve
 |---|---|---|
 | **Figma Desktop Bridge Plugin** | `/Users/almamun/Documents/figma-console-mcp-main/figma-desktop-bridge/` | `/Users/almamun/Downloads/Files/Figshot and bridge/FigShot-Handover/2-figma-desktop-bridge-plugin/` |
 | **MCP Server (Local Relay & Disk Backups)** | `/Users/almamun/Documents/figma-console-mcp-main/` | `/Users/almamun/Downloads/Files/Figshot and bridge/FigShot-Handover/3-mcp-server/` |
-| **Custom FigShot (Chrome Extension)** | `/Users/almamun/Documents/figma-console-mcp-main/figshot-extracted/` | `/Users/almamun/Downloads/Files/Figshot and bridge/FigShot-Handover/1-figshot-extension/` |
-| **Transfer Checkpoint Backups (On-Disk)** | `~/Documents/FigShot-Transfer-Backups/<jobId>/` | *Generated dynamically on disk* |
+| **Custom fiGapture (Chrome Extension)** | `/Users/almamun/Documents/figma-console-mcp-main/fiGapture-extracted/` | `/Users/almamun/Downloads/Files/Figshot and bridge/FigShot-Handover/1-fiGapture-extension/` |
+| **Transfer Checkpoint Backups (On-Disk)** | `~/Documents/fiGapture-Transfer-Backups/<jobId>/` | *Generated dynamically on disk* |
 
 ---
 
@@ -41,16 +41,16 @@ The project consists of three core components working in unison:
 ```
 ┌────────────────────────────────────────────────────────┐
 │             Google Chrome / Microsoft Edge             │
-│        Custom FigShot Extension (Load Unpacked)        │
+│        Custom fiGapture Extension (Load Unpacked)        │
 │    Captures DOM, 1800px Screenshots, Design Tokens    │
 └───────────────────────────┬────────────────────────────┘
                             │ HTTP POST (port 9223-9232)
                             ▼
 ┌────────────────────────────────────────────────────────┐
 │            Local MCP Relay Server (Node.js)            │
-│         /figshot/* captures & /transfer/* jobs         │
+│         /fiGapture/* captures & /transfer/* jobs         │
 │     Saves all chunks, images, and logs directly to     │
-│       ~/Documents/FigShot-Transfer-Backups/<jobId>/    │
+│       ~/Documents/fiGapture-Transfer-Backups/<jobId>/    │
 └──────────────┬──────────────────────────┬──────────────┘
                │ HTTP & WebSocket         │ HTTP & WebSocket
                ▼                          ▼
@@ -62,7 +62,7 @@ The project consists of three core components working in unison:
 └──────────────────────────────┘ └──────────────────────────────┘
 ```
 
-### Feature A: Web-to-Figma Capture ("figApture" / "FigShot" Tab)
+### Feature A: Web-to-Figma Capture ("figApture" / "fiGapture" Tab)
 - Captures full-page websites without scrolling using the Chrome DevTools Protocol (`chrome.debugger`, `Page.captureScreenshot`, scale 1).
 - Scrapes computed styles, design system tokens (colors, typography, spacing, radii, shadows, icons), and DOM tree.
 - Posts capture data to the local MCP server on port 9223.
@@ -110,7 +110,7 @@ The project consists of three core components working in unison:
   - In `websocket-server.ts`: Added a lock in `POST /transfer/jobs/:id` preventing late chunks from overwriting `state: 'cancelled'` unless explicit `patch.resume === true` is sent.
 
 ### 5. Fault-Tolerant On-Disk Checkpoint Resume System
-- In `websocket-server.ts`: Every job manifest, page chunk, and raw image is automatically written to disk under `~/Documents/FigShot-Transfer-Backups/<jobId>/`:
+- In `websocket-server.ts`: Every job manifest, page chunk, and raw image is automatically written to disk under `~/Documents/fiGapture-Transfer-Backups/<jobId>/`:
   - `job.json`: Full state, page list, item counts, and completion status.
   - `page-<index>.json`: Page start manifest and background fills.
   - `page-<pi>_chunk_<ci>.json`: Individual chunk data containing serialized nodes.
@@ -135,11 +135,11 @@ The project consists of three core components working in unison:
   - `GET /transfer/jobs/:id/pages/:key` and `GET /transfer/jobs/:id/img/:hash` read checkpoints from disk like this:
     `try { res.writeHead(200); res.end(readFileSync(file)); return true; } catch {}` → then `json(404, ...)`.
     Headers were sent **before** the file was read. If the read failed (unreadable/locked/oversized checkpoint), the error was swallowed and the code fell through to `json(404)` — a **second** `writeHead` → Node throws → uncaught → server dies.
-  - The route-local `json()` helpers (Transfer and FigShot) called `writeHead` *before* `JSON.stringify`, so a huge or unserializable body could trigger the same double-response via the `fail()` path.
+  - The route-local `json()` helpers (Transfer and fiGapture) called `writeHead` *before* `JSON.stringify`, so a huge or unserializable body could trigger the same double-response via the `fail()` path.
 - **Solution (`src/core/websocket-server.ts`)**:
   - New `private sendJson(res, code, body)`: serializes first, skips if `res.headersSent`/`writableEnded`, never throws. Both route `json` helpers now delegate to it.
   - Checkpoint reads now do `const data = readFileSync(file)` **before** `writeHead`.
-  - `handleHttpRequest` wraps the FigShot/Transfer route calls in `try/catch` → logs and returns a 500 for that one request instead of crashing the server.
+  - `handleHttpRequest` wraps the fiGapture/Transfer route calls in `try/catch` → logs and returns a 500 for that one request instead of crashing the server.
 - **Verification**: `scripts/test-relay-endpoints.mjs` reproduced the crash on the old build (33/35, 2× `ERR_HTTP_HEADERS_SENT`) and passes 35/35 with 0 crashes on the fixed build. Recompiling changed only `dist/core/websocket-server.js`; the other 109 compiled files are byte-identical. Pre-fix copies: `_backups/server-before-headers-fix-20261114-133318/`.
 
 ---
@@ -168,17 +168,17 @@ The project consists of three core components working in unison:
   - Line 4602: `renderTransferDashboard(wrap, job, isSource, canResume)`: live dashboard with stat grid, progress bar, and page list.
 
 ### MCP Relay Server (`src/core/websocket-server.ts`)
-- Line 291: `sendJson(res, code, body)`: crash-safe JSON response used by every FigShot/Transfer route (see Bug 7).
+- Line 291: `sendJson(res, code, body)`: crash-safe JSON response used by every fiGapture/Transfer route (see Bug 7).
 - Line 308: `readBody(req, limit)`: request body reader with size limit.
-- Line 332: `handleFigshotRoute`: `GET/POST /figshot/captures`, `GET/DELETE /figshot/captures/:id` (`?part=design`), in-memory, capped at 900MB.
-- Line 382: `TRANSFER_ROOT` = `~/Documents/FigShot-Transfer-Backups`.
+- Line 332: `handleFiGaptureRoute`: `GET/POST /fiGapture/captures`, `GET/DELETE /fiGapture/captures/:id` (`?part=design`), in-memory, capped at 900MB.
+- Line 382: `TRANSFER_ROOT` = `~/Documents/fiGapture-Transfer-Backups`.
 - Line 410: `handleTransferRoute`: `GET /transfer/ping`, `GET /transfer/files`.
 - Line 429: `GET /transfer/jobs` (`?dest=`): returns active memory and disk-persisted jobs.
 - Line 450: `POST /transfer/jobs`: creates a new transfer job on disk.
 - Line 462: `GET | POST | DELETE /transfer/jobs/:id`: POST patches job state with cancellation protection against late chunks (`resume: true` un-cancels).
 - Line 486: `PUT | GET /transfer/jobs/:id/pages/:key`: persists/serves chunk JSONs (memory first, then disk checkpoint).
 - Line 520: `PUT | GET /transfer/jobs/:id/img/:hash`: persists/serves image buffers (memory first, then disk checkpoint).
-- Line 566: `handleHttpRequest`: CORS, routes to FigShot/Transfer inside a crash guard, `/health`.
+- Line 566: `handleHttpRequest`: CORS, routes to fiGapture/Transfer inside a crash guard, `/health`.
 
 ---
 
@@ -199,7 +199,7 @@ npm run build:local
 node scripts/test-relay-endpoints.mjs      # expect "Passed 35/35" and "Server crashes: 0"
 npx jest tests/websocket-bridge.test.ts     # expect 111 passed
 ```
-The test uses a throwaway HOME, so it never touches your real transfer backups. Add a check to it whenever you add a new `/transfer/*` or `/figshot/*` route.
+The test uses a throwaway HOME, so it never touches your real transfer backups. Add a check to it whenever you add a new `/transfer/*` or `/fiGapture/*` route.
 
 ### To Verify Server Endpoints:
 ```bash
@@ -232,12 +232,12 @@ cp /Users/almamun/Documents/figma-console-mcp-main/src/core/websocket-server.ts 
 Recommended: continue in **Claude Code in the desktop app**, opened on `/Users/almamun/Documents/figma-console-mcp-main` (it can run builds, tests and the server directly on the Mac). Paste the following prompt:
 
 ```markdown
-I am continuing work on the "FigShot & Figma Desktop Bridge" project.
+I am continuing work on the "fiGapture & Figma Desktop Bridge" project.
 Please read HANDOVER.md located at `/Users/almamun/Documents/figma-console-mcp-main/HANDOVER.md` (and in `/Users/almamun/Downloads/Files/Figshot and bridge/FigShot-Handover/HANDOVER.md`).
 
 Summary of current state:
 1. The project has 3 parts:
-   - Custom FigShot Chrome Extension (`1-figshot-extension`)
+   - Custom fiGapture Chrome Extension (`1-fiGapture-extension`)
    - Figma Desktop Bridge Plugin (`2-figma-desktop-bridge-plugin` or `/Users/almamun/Documents/figma-console-mcp-main/figma-desktop-bridge/`)
    - MCP Server Relay (`3-mcp-server` or `/Users/almamun/Documents/figma-console-mcp-main/`)
 2. Recent major fixes completed:
@@ -246,7 +246,7 @@ Summary of current state:
    - Fixed false 30s rebuild timeout ("Timed out waiting for page") by implementing adaptive heartbeat polling.
    - Fixed Cancel Transfer so it stops immediately and locks the job from being overwritten by late chunks.
    - Fixed relay server crash ERR_HTTP_HEADERS_SENT ("figma-console stopped running") with crash-safe responses in websocket-server.ts (2026-11-14).
-   - Added persistent on-disk checkpoint logging (~/Documents/FigShot-Transfer-Backups/) with instant "Resume Transfer from Checkpoint".
+   - Added persistent on-disk checkpoint logging (~/Documents/fiGapture-Transfer-Backups/) with instant "Resume Transfer from Checkpoint".
    - Added live Transfer Dashboard showing item counts per page, transferred file count, and live per-page status.
 
 3. Base is official figma-console-mcp v1.46.0; only code.js, ui.html and src/core/websocket-server.ts are customized.
@@ -262,14 +262,14 @@ All code has been built and tested on local port 9223. What would you like us to
 1. Back up the whole project (or at least the 3 customized files + `_backups/`).
 2. Get the new official release (`git clone https://github.com/southleft/figma-console-mcp` and check out the new tag).
 3. Diff the official **v1.46.0 → new version** for the 3 customized files only. Everything else can be replaced wholesale.
-4. Re-apply our changes onto the new versions of those 3 files (our code is mostly self-contained: the `tr*` functions + `TR_*` messages in `code.js`, the Transfer/FigShot tabs in `ui.html`, and `sendJson` / `handleFigshotRoute` / `handleTransferRoute` / transfer helpers in `websocket-server.ts`).
+4. Re-apply our changes onto the new versions of those 3 files (our code is mostly self-contained: the `tr*` functions + `TR_*` messages in `code.js`, the Transfer/fiGapture tabs in `ui.html`, and `sendJson` / `handleFiGaptureRoute` / `handleTransferRoute` / transfer helpers in `websocket-server.ts`).
 5. `npm install && npm run build:local`, run the test commands in Section 5, then test a real transfer between two Figma files.
 
 ## 8. Other Folders in This Project (separate side tools)
 
-- `figshot-extracted/` — the custom FigShot Chrome extension (see Section 1).
+- `fiGapture-extracted/` — the custom fiGapture Chrome extension (see Section 1).
 - `cookie-transfer-extension/` — Chrome extension: export site cookies to JSON / a local app and import them into another profile. Has its own README.
 - `sheet-doc-downloader/` — Chrome extension "Sheet Doc One-Click Download": adds a download button to Google Sheets link previews.
 - `_backups/` — dated snapshots taken before risky changes (`LATEST_BRIDGE_BACKUP.txt` / `LATEST_EXTENSION_BACKUP.txt` point to the latest).
-- `FigShot-HANDOVER.md` / `FigShot-Handover.zip` — older handover package from 2026-11-12; this file supersedes it.
+- `fiGapture-HANDOVER.md` / `FigShot-Handover.zip` — older handover package from 2026-11-12; this file supersedes it.
 

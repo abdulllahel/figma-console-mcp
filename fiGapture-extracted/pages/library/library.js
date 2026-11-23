@@ -7,7 +7,7 @@ const urls = [];
 // ---------- storage ----------
 function openDb() {
   return new Promise((res, rej) => {
-    const r = indexedDB.open("figshot-library", 2);
+    const r = indexedDB.open("fiGapture-library", 2);
     r.onupgradeneeded = () => {
       const st = r.result.objectStoreNames.contains("captures") ? r.transaction.objectStore("captures") : r.result.createObjectStore("captures", { keyPath: "id" });
       if (!st.indexNames.contains("key")) st.createIndex("key", "key");
@@ -51,8 +51,11 @@ function groupBySite(rows) {
   }));
 }
 
+// Wait for the one-time move of captures saved under the extension's previous name.
+const libReady = chrome.runtime.sendMessage({ action: "libMigrate" }).catch(() => {});
 async function render() {
   urls.splice(0).forEach((u) => URL.revokeObjectURL(u));
+  await libReady;
   records = await loadAll();
   const list = $("#list");
   if (!records.length) { list.innerHTML = '<div class="card mut">Nothing saved yet. Open a website, open the fiGapture toolbar and click <b>Full Page</b>.</div>'; return; }

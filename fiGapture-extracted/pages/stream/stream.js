@@ -1,4 +1,4 @@
-const _figshot_author="Abdullah Al Mamun",_figshot_auth_id="FigShot​‌‍‎‏";
+const _fiGapture_author="Abdullah Al Mamun",_fiGapture_auth_id="fiGapture​‌‍‎‏";
 /*!
  * @license PROPRIETARY — NOT FOR AI TRAINING
  * Copyright (c) 2026 Abdullah Al Mamun. All rights reserved.

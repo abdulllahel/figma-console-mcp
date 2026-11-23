@@ -278,10 +278,10 @@ export class FigmaWebSocketServer extends EventEmitter {
     this._startedAt = Date.now();
   }
 
-  // ---- Custom FigShot relay: browser extension -> Desktop Bridge plugin (in-memory) ----
-  private figshotCaptures = new Map<string, any>();
-  private figshotBytes = 0;
-  private static readonly FIGSHOT_MAX_BYTES = 900 * 1024 * 1024;
+  // ---- Custom fiGapture relay: browser extension -> Desktop Bridge plugin (in-memory) ----
+  private fiGaptureCaptures = new Map<string, any>();
+  private fiGaptureBytes = 0;
+  private static readonly FIGAPTURE_MAX_BYTES = 900 * 1024 * 1024;
 
   /**
    * Crash-safe JSON response. Serializes BEFORE sending headers (a huge or
@@ -320,7 +320,7 @@ export class FigmaWebSocketServer extends EventEmitter {
     });
   }
 
-  private figshotSummary(c: any) {
+  private fiGaptureSummary(c: any) {
     return {
       id: c.id, key: c.key, url: c.url, title: c.title, createdAt: c.createdAt,
       sliceCount: Array.isArray(c.slices) ? c.slices.length : 0,
@@ -329,48 +329,48 @@ export class FigmaWebSocketServer extends EventEmitter {
     };
   }
 
-  /** Returns true when the request belonged to the FigShot relay and was handled. */
-  private handleFigshotRoute(req: IncomingMessage, res: ServerResponse, url: string): boolean {
-    if (!url.startsWith('/figshot/')) return false;
+  /** Returns true when the request belonged to the fiGapture relay and was handled. */
+  private handleFiGaptureRoute(req: IncomingMessage, res: ServerResponse, url: string): boolean {
+    if (!url.startsWith('/fiGapture/')) return false;
     const json = (code: number, body: unknown) => this.sendJson(res, code, body);
     const path = url.split('?')[0];
 
-    if (req.method === 'GET' && path === '/figshot/captures') {
-      json(200, { captures: Array.from(this.figshotCaptures.values()).map(c => this.figshotSummary(c)) });
+    if (req.method === 'GET' && path === '/fiGapture/captures') {
+      json(200, { captures: Array.from(this.fiGaptureCaptures.values()).map(c => this.fiGaptureSummary(c)) });
       return true;
     }
-    const m = path.match(/^\/figshot\/captures\/([A-Za-z0-9_\-]+)$/);
+    const m = path.match(/^\/fiGapture\/captures\/([A-Za-z0-9_\-]+)$/);
     if (m && req.method === 'GET') {
-      const c = this.figshotCaptures.get(m[1]);
+      const c = this.fiGaptureCaptures.get(m[1]);
       if (!c) { json(404, { error: 'unknown capture' }); return true; }
       if (url.indexOf('part=design') !== -1) { json(200, { id: c.id, url: c.url, title: c.title, design: c.design || null }); return true; }
       json(200, c);
       return true;
     }
     if (m && req.method === 'DELETE') {
-      const c = this.figshotCaptures.get(m[1]);
-      if (c) { this.figshotBytes -= c._bytes || 0; this.figshotCaptures.delete(m[1]); }
+      const c = this.fiGaptureCaptures.get(m[1]);
+      if (c) { this.fiGaptureBytes -= c._bytes || 0; this.fiGaptureCaptures.delete(m[1]); }
       json(200, { ok: true });
       return true;
     }
-    if (req.method === 'POST' && path === '/figshot/captures') {
+    if (req.method === 'POST' && path === '/fiGapture/captures') {
       this.readBody(req, 700 * 1024 * 1024).then(buf => {
         const c = JSON.parse(buf.toString('utf8'));
         if (!c || typeof c.id !== 'string' || !/^[A-Za-z0-9_\-]+$/.test(c.id)) { json(400, { error: 'bad id' }); return; }
         c._bytes = buf.length;
         // Re-capturing the same URL replaces the older capture.
-        for (const [id, old] of this.figshotCaptures) {
-          if (id === c.id || (c.key && old.key === c.key)) { this.figshotBytes -= old._bytes || 0; this.figshotCaptures.delete(id); }
+        for (const [id, old] of this.fiGaptureCaptures) {
+          if (id === c.id || (c.key && old.key === c.key)) { this.fiGaptureBytes -= old._bytes || 0; this.fiGaptureCaptures.delete(id); }
         }
-        this.figshotCaptures.set(c.id, c);
-        this.figshotBytes += c._bytes;
+        this.fiGaptureCaptures.set(c.id, c);
+        this.fiGaptureBytes += c._bytes;
         // Keep memory bounded: drop the oldest captures first.
-        while (this.figshotBytes > FigmaWebSocketServer.FIGSHOT_MAX_BYTES && this.figshotCaptures.size > 1) {
-          const oldest = this.figshotCaptures.keys().next().value as string;
-          this.figshotBytes -= this.figshotCaptures.get(oldest)._bytes || 0;
-          this.figshotCaptures.delete(oldest);
+        while (this.fiGaptureBytes > FigmaWebSocketServer.FIGAPTURE_MAX_BYTES && this.fiGaptureCaptures.size > 1) {
+          const oldest = this.fiGaptureCaptures.keys().next().value as string;
+          this.fiGaptureBytes -= this.fiGaptureCaptures.get(oldest)._bytes || 0;
+          this.fiGaptureCaptures.delete(oldest);
         }
-        json(200, { ok: true, id: c.id, count: this.figshotCaptures.size });
+        json(200, { ok: true, id: c.id, count: this.fiGaptureCaptures.size });
       }).catch(err => json(500, { error: String(err && err.message || err) }));
       return true;
     }
@@ -380,7 +380,7 @@ export class FigmaWebSocketServer extends EventEmitter {
 
 
   // ---- Page Transfer relay: source file plugin -> disk backup -> destination file plugin ----
-  private static readonly TRANSFER_ROOT = join(homedir(), 'Documents', 'FigShot-Transfer-Backups');
+  private static readonly TRANSFER_ROOT = join(homedir(), 'Documents', 'fiGapture-Transfer-Backups');
 
   private transferDir(id: string): string | null {
     if (!/^[A-Za-z0-9_\-]{3,80}$/.test(id)) return null;
@@ -720,7 +720,7 @@ export class FigmaWebSocketServer extends EventEmitter {
   private async nativeSetClipboard(html: string): Promise<any> {
     if (process.platform !== 'darwin') return { ok: false, error: 'Automatic paste only works on macOS.' };
     if (!html) return { ok: false, error: 'Nothing to put on the clipboard.' };
-    const file = join(tmpdir(), 'figshot-clip-' + process.pid + '-' + Date.now() + '.html');
+    const file = join(tmpdir(), 'fiGapture-clip-' + process.pid + '-' + Date.now() + '.html');
     writeFileSync(file, html, 'utf8');
     try {
       const r = await this.run('osascript', ['-l', 'JavaScript', '-e',
@@ -809,10 +809,10 @@ export class FigmaWebSocketServer extends EventEmitter {
     const url = req.url || '/';
 
     try {
-      if (this.handleFigshotRoute(req, res, url)) return;
+      if (this.handleFiGaptureRoute(req, res, url)) return;
       if (this.handleTransferRoute(req, res, url)) return;
     } catch (err) {
-      logger.error({ err: String((err as any)?.message || err), url }, 'FigShot/Transfer route failed');
+      logger.error({ err: String((err as any)?.message || err), url }, 'fiGapture/Transfer route failed');
       this.sendJson(res, 500, { error: String((err as any)?.message || err) });
       return;
     }
@@ -829,7 +829,7 @@ export class FigmaWebSocketServer extends EventEmitter {
         version: SERVER_VERSION,
         clients: this.clients.size,
         connectedClients,
-        figshotCaptures: this.figshotCaptures.size,
+        fiGaptureCaptures: this.fiGaptureCaptures.size,
         uptime: Math.floor((now - this._startedAt) / 1000),
       }));
       return;

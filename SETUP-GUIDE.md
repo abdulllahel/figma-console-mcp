@@ -40,7 +40,7 @@
                    ▼
 ┌────────────────────────────────────────┐
 │  figma-console MCP server (C)          │  Node.js program; Claude starts it
-│  relay + on-disk backups               │  backups: ~/Documents/FigShot-Transfer-Backups/
+│  relay + on-disk backups               │  backups: ~/Documents/fiGapture-Transfer-Backups/
 └──────────┬─────────────────┬───────────┘
            ▼                 ▼
 ┌──────────────────┐ ┌──────────────────┐
@@ -105,7 +105,7 @@
 - **Transfer stuck on an image:** image reads now time out after 7 s, and every wait for an acknowledgement has a 10–15 s fallback.
 - **"Timed out waiting for page" in the destination:** the fixed 30 s limit was replaced by a heartbeat. The destination now waits as long as the source keeps making progress, and gives up only after 3 minutes of silence.
 - **Cancel not stopping:** cancel now uses the exact job ID, and the server refuses to let late chunks un-cancel a job.
-- **Checkpoints and Resume:** every job is saved under `~/Documents/FigShot-Transfer-Backups/<jobId>/`, and **"▶ Resume Transfer from Checkpoint"** skips work already done.
+- **Checkpoints and Resume:** every job is saved under `~/Documents/fiGapture-Transfer-Backups/<jobId>/`, and **"▶ Resume Transfer from Checkpoint"** skips work already done.
 - **Live dashboard:** pages, items, files saved, and a progress bar.
 
 ---

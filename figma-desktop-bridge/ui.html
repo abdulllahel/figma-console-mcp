@@ -503,7 +503,7 @@
     .agent-row.active .agent-dot { opacity: 1; box-shadow: 0 0 0 3px rgba(128,128,128,0.25); }
     .agent-name { font-weight: 600; flex: none; }
     .agent-task { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.75; }
-    /* ---- Custom FigShot tab ---- */
+    /* ---- Custom fiGapture tab ---- */
     .agent-tab { padding: 3px 6px; }
     .fs-bar { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0 6px; }
     .fs-btn { font: inherit; font-size: 10px; padding: 3px 6px; border-radius: 5px; border: 1px solid rgba(128,128,128,0.4); background: transparent; color: inherit; cursor: pointer; }
@@ -526,6 +526,13 @@
     .fs-main { width: 100%; margin-top: 8px; font: inherit; font-weight: 700; padding: 8px; border-radius: 6px; border: 0; cursor: pointer; background: var(--figma-color-bg-brand, #0d99ff); color: var(--figma-color-text-onbrand, #fff); }
     .fs-copy { width: 100%; margin-top: 6px; font: inherit; padding: 6px; border-radius: 6px; cursor: pointer; border: 1px solid rgba(128,128,128,0.4); background: transparent; color: inherit; }
     #fs-status { margin-top: 6px; opacity: 0.85; line-height: 1.4; user-select: text; }
+    .fs-prog { margin-top: 10px; }
+    .fs-prog-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-weight: 600; }
+    .fs-prog-top b { margin-left: auto; font-variant-numeric: tabular-nums; }
+    .fs-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(128,128,128,0.35); border-top-color: var(--figma-color-bg-brand, #0d99ff); animation: fs-spin .8s linear infinite; flex: none; }
+    @keyframes fs-spin { to { transform: rotate(360deg); } }
+    .fs-prog.done .tr-fill { background: #14ae5c; }
+    @media (prefers-reduced-motion: reduce) { .fs-spin { animation: none; } }
     .tr-wrap { padding: 2px 0; }
     .tr-h { font-weight: 700; margin: 6px 0 3px; }
     .tr-in { width: 100%; box-sizing: border-box; font: inherit; font-size: 11px; padding: 5px 6px; border-radius: 5px; border: 1px solid rgba(128,128,128,0.4); background: transparent; color: inherit; }
@@ -1185,7 +1192,7 @@
       var ghostShown = {};    // key -> true while a cursor may exist on canvas
       var followKey = null;   // agent whose cursor the viewport follows
       var soundOn = true;
-      var activeTab = 'figshot';
+      var activeTab = 'fiGapture';
       var openTasks = {};     // task id -> accordion open
       var tasks = [];         // this session's tasks (oldest first)
       var pastTasks = [];     // tasks loaded from earlier sessions (newest first)
@@ -1783,13 +1790,13 @@ function renderReport(root) {
         root.classList.add('visible');
         var running = agentOrder.filter(function(k) { return agents[k].working || agents[k].busy; }).length;
         var tabs = mk('div', 'agent-tabs');
-        [['figshot', 'fiGapture' + (window.__fsCount && window.__fsCount() ? ' (' + window.__fsCount() + ')' : '')], ['live', 'agents' + (running ? ' (' + running + ')' : '')], ['transfer', 'Transfer'], ['paste', 'Copy/Paste' + (window.__trCount && window.__trCount() ? ' •' : '')]].forEach(function(t) {
+        [['fiGapture', 'fiGapture' + (window.__fsCount && window.__fsCount() ? ' (' + window.__fsCount() + ')' : '')], ['live', 'agents' + (running ? ' (' + running + ')' : '')], ['transfer', 'Transfer pages']].forEach(function(t) {
           var b = mk('button', 'agent-tab' + (activeTab === t[0] ? ' on' : ''), t[1]);
           b.onclick = function() { activeTab = t[0]; if (t[0] === 'report') requestReport('preview'); renderAgentsNow(); };
           tabs.appendChild(b);
         });
         root.appendChild(tabs);
-        if (activeTab === 'live') renderLive(root); else if (activeTab === 'figshot') { if (window.__fsRenderTab) window.__fsRenderTab(root); } else if (activeTab === 'transfer') { if (window.__trRenderTab) window.__trRenderTab(root); } else if (activeTab === 'paste') { if (window.__trRenderPaste) window.__trRenderPaste(root); } else renderLive(root);
+        if (activeTab === 'live') renderLive(root); else if (activeTab === 'fiGapture') { if (window.__fsRenderTab) window.__fsRenderTab(root); } else if (activeTab === 'transfer') { if (window.__trRenderTab) window.__trRenderTab(root); } else renderLive(root);
         var newList = root.querySelector ? root.querySelector('#agent-list') : null;
         if (newList && keepScroll) newList.scrollTop = keepScroll;
         if (typeof autoResize === 'function') autoResize();
@@ -3532,7 +3539,7 @@ function renderReport(root) {
   </script>
   <script>
   // =====================================================================
-  // Custom FigShot tab: captures from the browser extension, grouped by
+  // Custom fiGapture tab: captures from the browser extension, grouped by
   // website (accordions). Paste in Figma builds screenshots + design system
   // natively (no AI involved) and copies the page layers for Cmd+V.
   // =====================================================================
@@ -3545,8 +3552,16 @@ function renderReport(root) {
     function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
     function rerender() { if (typeof window.__fsRerender === 'function') window.__fsRerender(); }
     function resize() { try { if (typeof autoResize === 'function') autoResize(); } catch (e) {} }
-    function setStatus(t) { fsStatus = t || ''; var s = document.getElementById('fs-status'); if (s) { s.textContent = fsStatus; resize(); } else rerender(); }
-    function base(c) { return 'http://localhost:' + c.port + '/figshot/captures/' + encodeURIComponent(c.id); }
+    function setStatus(t, pct) { if (typeof pct === 'number') setPct(pct); fsStatus = t || ''; var s = document.getElementById('fs-status'); if (s) { s.textContent = fsStatus; resize(); } else rerender(); }
+    // Loader for Paste in Figma: 0-100%, only ever moves forward. null hides it.
+    var fsPct = null;
+    function setPct(p) {
+      if (p === null) { fsPct = null; rerender(); return; }
+      fsPct = Math.max(fsPct || 0, Math.min(100, Math.round(p)));
+      var f = document.getElementById('fs-fill'), l = document.getElementById('fs-pct');
+      if (f && l) { f.style.width = fsPct + '%'; l.textContent = fsPct + '%'; } else rerender();
+    }
+    function base(c) { return 'http://localhost:' + c.port + '/fiGapture/captures/' + encodeURIComponent(c.id); }
     function selected() { return captures.filter(function (c) { return !off[c.id]; }); }
     function hostsList() { var seen = {}, out = []; captures.forEach(function (c) { var h = hostOf(c.url); if (!seen[h]) { seen[h] = 1; out.push(h); } }); return out; }
     window.__fsCount = function () { return captures.length; };
@@ -3557,7 +3572,7 @@ function renderReport(root) {
       var all = [];
       await Promise.all(ports.map(async function (port) {
         try {
-          var r = await fetch('http://localhost:' + port + '/figshot/captures', { signal: AbortSignal.timeout(1500) });
+          var r = await fetch('http://localhost:' + port + '/fiGapture/captures', { signal: AbortSignal.timeout(1500) });
           if (!r.ok) throw new Error('no relay');
           var j = await r.json(); known[port] = 1;
           (j.captures || []).forEach(function (c) { c.port = port; all.push(c); });
@@ -3665,7 +3680,7 @@ function renderReport(root) {
     }
     window.addEventListener('message', function (ev) {
       var m = ev.data && ev.data.pluginMessage;
-      if (m && m.type === 'FIGSHOT_LAYERS_RESULT' && layerWaiters[m.op]) { var w = layerWaiters[m.op]; delete layerWaiters[m.op]; w(m); }
+      if (m && m.type === 'FIGAPTURE_LAYERS_RESULT' && layerWaiters[m.op]) { var w = layerWaiters[m.op]; delete layerWaiters[m.op]; w(m); }
     });
     function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
     async function nj(port, path, body, ms) {
@@ -3685,43 +3700,43 @@ function renderReport(root) {
       return null;
     }
     async function autoPasteLayers(loc, html, name) {
-      var prep = await askLayers('FIGSHOT_LAYERS_PREP', { name: name }, 20000);
+      var prep = await askLayers('FIGAPTURE_LAYERS_PREP', { name: name }, 20000);
       if (!prep.ok) throw new Error(prep.error || 'Could not make the layers Section.');
       var id = prep.id, ok = false;
       try {
-        setStatus('Putting the layers on the clipboard…');
+        setStatus('Putting the layers on the clipboard…', 15);
         var c = await nj(loc.port, '/transfer/native/set-clipboard', { html: html }, 90000);
         if (!c.ok) { fsAuto.err = c.error || 'Could not write the clipboard.'; return { ok: false }; }
-        setStatus('Clicking the canvas…');
+        setStatus('Clicking the canvas…', 20);
         var f = await nj(loc.port, '/transfer/native/focus', { fileName: prep.fileName, panelX: loc.panelX, panelY: loc.panelY }, 20000);
         if (!f.ok) { fsAuto.err = f.error || 'Could not click the canvas.'; fsAuto.needsAccess = !!f.needsAccess; fsAuto.accessApp = f.accessApp || ''; return { ok: false }; }
-        await askLayers('FIGSHOT_LAYERS_SELECT', { id: id }, 10000);
-        setStatus('Pressing Cmd+V…');
+        await askLayers('FIGAPTURE_LAYERS_SELECT', { id: id }, 10000);
+        setStatus('Pressing Cmd+V…', 24);
         var p = await nj(loc.port, '/transfer/native/paste', { fileName: prep.fileName, kind: 'h2d', changeCount: c.changeCount }, 20000);
         if (!p.ok) { fsAuto.err = p.error || 'Paste failed.'; fsAuto.needsAccess = !!p.needsAccess; fsAuto.accessApp = p.accessApp || ''; return { ok: false }; }
         // Wait until Figma has finished building the layers (the count stops growing).
         var count = 0, last = -1, since = Date.now(), start = Date.now();
         while (Date.now() - start < 180000) {
           await wait(700);
-          count = (await askLayers('FIGSHOT_LAYERS_COUNT', { id: id }, 10000)).count || 0;
-          setStatus('Pasting the editable layers… ' + count + ' layer(s)');
+          count = (await askLayers('FIGAPTURE_LAYERS_COUNT', { id: id }, 10000)).count || 0;
+          setStatus('Pasting the editable layers… ' + count + ' layer(s)', 25 + 33 * (1 - Math.exp(-count / 400)));
           if (count !== last) { last = count; since = Date.now(); }
           else if (count > 0 && Date.now() - since > 3000) break;
-          if (!count && Date.now() - start > 15000) break;
+          if (!count && Date.now() - start > 30000) break;
         }
-        if (!count) { fsAuto.err = 'Figma ignored Cmd+V (the canvas did not get focus). Keep this panel over the canvas, not over the side panels, and try again.'; return { ok: false }; }
-        await askLayers('FIGSHOT_LAYERS_FIT', { id: id, name: name }, 20000);
-        fsAuto.pasted = count; ok = true;
+        if (!count) { fsAuto.err = 'No layers appeared within 30 seconds after Cmd+V (the canvas may not have had focus). Keep this panel over the canvas, not over the side panels, and try again.'; return { ok: false }; }
+        await askLayers('FIGAPTURE_LAYERS_FIT', { id: id, name: name }, 20000);
+        fsAuto.pasted = count; ok = true; setPct(60);
         return { ok: true, id: id };
       } finally {
-        if (!ok) { try { await askLayers('FIGSHOT_LAYERS_FIT', { id: id, removeIfEmpty: true }, 10000); } catch (e) {} }
+        if (!ok) { try { await askLayers('FIGAPTURE_LAYERS_FIT', { id: id, removeIfEmpty: true }, 10000); } catch (e) {} }
       }
     }
 
     async function paste(sel, ev) {
       if (!sel.length) { setStatus('Tick at least one page first.'); return; }
       if (busy) return;
-      busy = true; needCopy = false; fsAuto = { err: '', needsAccess: false, accessApp: '', pasted: 0, auto: false }; rerender();
+      busy = true; needCopy = false; fsAuto = { err: '', needsAccess: false, accessApp: '', pasted: 0, auto: false }; fsPct = 0; fsStatus = 'Starting…'; rerender(); setPct(2);
       try {
         // 0) Where is this panel? Read it at once, while the pointer is still on the button.
         var locP = locate(ev, sel[0] && sel[0].port);
@@ -3733,8 +3748,9 @@ function renderReport(root) {
           if (html) { lastCopyHtml = html; copied = copyHtml(html); }
         }
         var loc = await locP;
-        setStatus('Loading captures…');
+        setStatus('Loading captures…', 6);
         await Promise.all(sel.map(load));
+        setPct(12);
         var h2 = layersHtml(sel); hasLayers = !!h2;
         if (h2) { lastCopyHtml = h2; if (!copied) copied = copyHtml(h2); }
         // 2) Paste the editable layers FIRST, automatically.
@@ -3752,7 +3768,9 @@ function renderReport(root) {
           if (!fsAuto.auto && !copied) copied = copyHtml(h2);
         }
         // 3) Then screenshots, then the design system -> built natively by the plugin.
-        setStatus(fsAuto.auto ? 'Layers pasted ✓ — building screenshots and design system…' : 'Building in Figma…');
+        setStatus(fsAuto.auto ? 'Layers pasted ✓ — preparing screenshots…' : 'Preparing screenshots…', 60);
+        var sliceTotal = 0, sliceDone = 0;
+        sel.forEach(function (c) { sliceTotal += ((cache[c.id] && cache[c.id].slices) || []).length; });
         var byHost = {}, hosts = [];
         sel.forEach(function (c) { var h = hostOf(c.url); if (!byHost[h]) { byHost[h] = []; hosts.push(h); } byHost[h].push(c); });
         var sites = [];
@@ -3763,7 +3781,7 @@ function renderReport(root) {
           var pageList = [];
           for (var bi = 0; bi < byHost[host].length; bi++) {
             var c = byHost[host][bi], pl = cache[c.id], sls = [];
-            for (var si = 0; si < (pl.slices || []).length; si++) sls.push(await tileSlice(pl.slices[si]));
+            for (var si = 0; si < (pl.slices || []).length; si++) { sls.push(await tileSlice(pl.slices[si])); sliceDone++; setPct(60 + 15 * sliceDone / Math.max(1, sliceTotal)); }
             pageList.push({ path: pathOf(c.url), title: c.title, url: c.url, pageWidth: pl.pageWidth, dpr: pl.dpr, slices: sls });
           }
           sites.push({
@@ -3774,17 +3792,20 @@ function renderReport(root) {
           });
         }
         needCopy = hasLayers && !fsAuto.auto && !copied;
-        parent.postMessage({ pluginMessage: { type: 'FIGSHOT_BUILD', hasLayers: hasLayers && !fsAuto.auto, layerSectionId: layerSectionId, sites: sites } }, '*');
+        setStatus('Building in Figma…', 75);
+        parent.postMessage({ pluginMessage: { type: 'FIGAPTURE_BUILD', hasLayers: hasLayers && !fsAuto.auto, layerSectionId: layerSectionId, sites: sites } }, '*');
       } catch (e) {
-        busy = false; setStatus('Failed: ' + (e && e.message || e)); rerender();
+        busy = false; fsPct = null; setStatus('Failed: ' + (e && e.message || e)); rerender();
       }
     }
 
     window.addEventListener('message', function (ev) {
       var m = ev.data && ev.data.pluginMessage;
-      if (!m || m.type !== 'FIGSHOT_BUILD_RESULT') return;
+      if (m && m.type === 'FIGAPTURE_BUILD_PROGRESS') { if (busy) setStatus(m.label || 'Building in Figma…', 75 + 24 * (m.done || 0) / Math.max(1, m.total || 1)); return; }
+      if (!m || m.type !== 'FIGAPTURE_BUILD_RESULT') return;
       busy = false;
-      if (!m.ok) { fsStatus = 'Build failed: ' + m.error; rerender(); return; }
+      if (!m.ok) { fsPct = null; fsStatus = 'Build failed: ' + m.error; rerender(); return; }
+      fsPct = 100;
       var s = m.stats, parts = [];
       if (s.pages) parts.push(s.pages + ' page section(s) with screenshots');
       if (s.designs) parts.push(s.designs + ' design system(s): ' + s.variables + ' variables, ' + s.textStyles + ' text styles, ' + s.effectStyles + ' shadows, ' + s.components + ' components');
@@ -3861,6 +3882,14 @@ function renderReport(root) {
       main.onclick = function (ev) { paste(sel, ev); };
       wrap.appendChild(main);
       if (needCopy) { var cp = el('button', 'fs-copy', 'Copy layers (then Cmd+V)'); cp.onclick = function () { if (lastCopyHtml && copyHtml(lastCopyHtml)) { needCopy = false; fsStatus = 'Layers copied — press Cmd+V.'; } else fsStatus = 'Copy failed — click the button again.'; rerender(); }; wrap.appendChild(cp); }
+      if (fsPct !== null) {
+        var pg = el('div', 'fs-prog' + (busy ? '' : ' done')), top = el('div', 'fs-prog-top');
+        if (busy) top.appendChild(el('span', 'fs-spin'));
+        top.appendChild(el('span', '', busy ? 'Pasting into Figma…' : 'Finished'));
+        var pc = el('b', '', fsPct + '%'); pc.id = 'fs-pct'; top.appendChild(pc); pg.appendChild(top);
+        var tk = el('div', 'tr-track'), fl = el('div', 'tr-fill'); fl.id = 'fs-fill'; fl.style.width = fsPct + '%'; tk.appendChild(fl); pg.appendChild(tk);
+        wrap.appendChild(pg);
+      }
       var st = el('div'); st.id = 'fs-status'; st.textContent = fsStatus; wrap.appendChild(st);
       if (fsAuto.err && !busy) {
         var er = el('div', 'tr-msg bad', 'Automatic paste: ' + fsAuto.err + ' The layers are on the clipboard — press Cmd+V to paste them into the selected Section.'); wrap.appendChild(er);
