@@ -545,6 +545,16 @@
     .tr-toast { position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 9999; padding: 8px 10px; border-radius: 6px; background: #1bc47d; color: #fff; font-weight: 600; transition: opacity .5s; }
     .tr-toast.err { background: #e5484d; } .tr-toast.out { opacity: 0; }
     .fs-empty { opacity: 0.7; padding: 8px 2px; line-height: 1.4; }
+    /* what to paste: Figma / Screenshot / DS (universal + per website) */
+    .fs-choices { margin-top: 8px; padding: 6px 8px; border: 1px solid rgba(128,128,128,0.25); border-radius: 6px; }
+    .fs-choices.site { margin-top: 6px; padding: 4px 6px; }
+    .fs-choices-t { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 10px; opacity: 0.7; margin-bottom: 4px; }
+    .fs-ck-row { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+    .fs-ck { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
+    .fs-ck input { margin: 0; cursor: pointer; }
+    .fs-ck.sub { font-size: 10px; opacity: 0.75; margin-top: 4px; }
+    .fs-link { background: none; border: 0; padding: 0; font: inherit; font-size: 10px; color: var(--figma-color-text-brand, #0d99ff); cursor: pointer; text-decoration: underline; }
+    .fs-hint { font-size: 10px; line-height: 1.35; color: #ff8585; margin-top: 4px; }
     .tr-cancel-btn { width: 100%; margin-top: 8px; font: inherit; font-weight: 600; font-size: 11px; padding: 7px 12px; border-radius: 6px; border: 1px solid rgba(229,72,77,0.4); background: rgba(229,72,77,0.14); color: #ff8585; cursor: pointer; transition: all .2s; }
     .tr-cancel-btn:hover { background: #e5484d; color: #fff; border-color: #e5484d; }
     .tr-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0; }
@@ -3546,7 +3556,7 @@ function renderReport(root) {
   (function () {
     var PORTS = []; for (var p0 = 9223; p0 <= 9232; p0++) PORTS.push(p0);
     var captures = [], cache = {}, loading = {}, designCache = {}, off = {}, known = {}, openAcc = {};
-    var busy = false, lastScan = 0, lastCopyHtml = null, fsStatus = '', needCopy = false, armed = null, armTimer = null, listScroll = 0, lastSig = '';
+    var busy = false, lastScan = 0, fsStatus = '', armed = null, armTimer = null, listScroll = 0, lastSig = '';
     function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return 'page'; } }
     function pathOf(u) { try { var x = new URL(u); return (x.pathname.replace(/\/+$/, '') || '/') + x.search; } catch (e) { return '/'; } }
     function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
@@ -3566,6 +3576,43 @@ function renderReport(root) {
     function hostsList() { var seen = {}, out = []; captures.forEach(function (c) { var h = hostOf(c.url); if (!seen[h]) { seen[h] = 1; out.push(h); } }); return out; }
     window.__fsCount = function () { return captures.length; };
 
+    // ---- what to paste: Figma layers / Screenshot / DS. Universal choice + one optional choice per website,
+    //      remembered across sessions (localStorage when the plugin window allows it, else figma.clientStorage).
+    var PREF_KEY = 'fiGapture.pasteChoices.v1';
+    var choices = { uni: { figma: true, shot: true, ds: true }, sites: {}, pin: true };
+    var prefsTouched = false, fsFixNote = '';
+    var CH_LABELS = [['figma', 'Figma', 'Editable layers (Cmd+V paste)'], ['shot', 'Screenshot', 'Full-size screenshots'], ['ds', 'DS', 'Design system guide, as one frame (adds no styles or variables to the file)']];
+    function cleanChoice(o, base) { var r = {}; ['figma', 'shot', 'ds'].forEach(function (k) { r[k] = o && typeof o[k] === 'boolean' ? o[k] : base[k]; }); return r; }
+    function applyPrefs(v) {
+      if (!v || typeof v !== 'object') return;
+      choices.uni = cleanChoice(v.uni, { figma: true, shot: true, ds: true });
+      choices.sites = {};
+      if (v.sites && typeof v.sites === 'object') Object.keys(v.sites).forEach(function (h) { choices.sites[h] = cleanChoice(v.sites[h], choices.uni); });
+      choices.pin = typeof v.pin === 'boolean' ? v.pin : true;
+    }
+    function savePrefs() {
+      prefsTouched = true;
+      try { localStorage.setItem(PREF_KEY, JSON.stringify(choices)); } catch (e) { /* not available in this window */ }
+      try { parent.postMessage({ pluginMessage: { type: 'FIGAPTURE_PREFS_SET', value: JSON.parse(JSON.stringify(choices)) } }, '*'); } catch (e) { /* ignore */ }
+    }
+    try { var savedPrefs = localStorage.getItem(PREF_KEY); if (savedPrefs) applyPrefs(JSON.parse(savedPrefs)); } catch (e) { /* ignore */ }
+    try { parent.postMessage({ pluginMessage: { type: 'FIGAPTURE_PREFS_GET' } }, '*'); } catch (e) { /* ignore */ }
+    function effChoice(host) { return choices.sites[host] || choices.uni; }
+    function anyOn(c) { return !!(c.figma || c.shot || c.ds); }
+    function setUni(k, v) { choices.uni[k] = v; savePrefs(); rerender(); }
+    function setSite(host, k, v) { var cur = Object.assign({}, effChoice(host)); cur[k] = v; choices.sites[host] = cur; savePrefs(); rerender(); }
+    function choiceRow(state, onChange) {
+      var row = el('div', 'fs-ck-row');
+      CH_LABELS.forEach(function (d) {
+        var lab = el('label', 'fs-ck'); lab.title = d[2];
+        var cb = el('input'); cb.type = 'checkbox'; cb.checked = !!state[d[0]];
+        cb.onclick = function (e) { e.stopPropagation(); };
+        cb.onchange = function () { onChange(d[0], cb.checked); };
+        lab.appendChild(cb); lab.appendChild(document.createTextNode(d[1])); row.appendChild(lab);
+      });
+      return row;
+    }
+
     async function poll() {
       var now = Date.now(), ports = PORTS;
       if (now - lastScan <= 15000 && Object.keys(known).length) ports = Object.keys(known).map(Number); else lastScan = now;
@@ -3579,7 +3626,7 @@ function renderReport(root) {
         } catch (e) { delete known[port]; }
       }));
       var seen = {}; captures = all.filter(function (c) { if (seen[c.id]) return false; seen[c.id] = 1; return true; });
-      captures.sort(function (a, b) { var ha = hostOf(a.url), hb = hostOf(b.url); return ha === hb ? pathOf(a.url).localeCompare(pathOf(b.url)) : ha.localeCompare(hb); });
+      captures.sort(function (a, b) { var ha = hostOf(a.url), hb = hostOf(b.url); return ha === hb ? (pathOf(a.url).localeCompare(pathOf(b.url)) || (b.createdAt || 0) - (a.createdAt || 0)) : ha.localeCompare(hb); }); // the newest capture of a page first
       var sig = captures.map(function (c) { return c.id + ':' + c.sliceCount; }).join('|');
       if (sig !== lastSig) { lastSig = sig; if (!busy) rerender(); }
       prefetch();
@@ -3624,27 +3671,136 @@ function renderReport(root) {
       bm.close && bm.close();
       return { width: w, height: h, tiles: tiles };
     }
-    function layersHtml(sel) {
-      var all = [];
+    // <use href="#symbol"> is drawn at the symbol's own size by Figma's paste (a 1000 px logo in a 167 px box):
+    // replace it with the symbol's shapes, scaled like the browser does.
+    function inlineUse(svgText) {
+      if (svgText.indexOf('<use') < 0) return svgText;
+      try {
+        var doc = new DOMParser().parseFromString(svgText, 'image/svg+xml'), root = doc.documentElement, NS = 'http://www.w3.org/2000/svg';
+        if (doc.querySelector('parsererror')) return svgText;
+        var num = function (v, full) { if (!v) return null; return /%$/.test(v) ? full * parseFloat(v) / 100 : parseFloat(v); };
+        var vb = (root.getAttribute('viewBox') || '').split(/[\s,]+/).map(Number);
+        var W = vb.length === 4 && vb[2] ? vb[2] : num(root.getAttribute('width'), 0), H = vb.length === 4 && vb[3] ? vb[3] : num(root.getAttribute('height'), 0);
+        var done = false;
+        Array.prototype.slice.call(root.querySelectorAll('use')).forEach(function (use) {
+          var id = (use.getAttribute('href') || use.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || use.getAttribute('xlink:href') || '').replace(/^#/, '');
+          var sym = id && root.querySelector('[id="' + id.replace(/"/g, '') + '"]');
+          if (!sym || sym.tagName !== 'symbol') return;
+          var w = num(use.getAttribute('width'), W) || W, h = num(use.getAttribute('height'), H) || H, x = num(use.getAttribute('x'), W) || 0, y = num(use.getAttribute('y'), H) || 0;
+          var sv = (sym.getAttribute('viewBox') || '').split(/[\s,]+/).map(Number), g = doc.createElementNS(NS, 'g');
+          if (sv.length === 4 && sv[2] > 0 && sv[3] > 0 && w && h) {
+            var k = Math.min(w / sv[2], h / sv[3]);
+            g.setAttribute('transform', 'translate(' + (x + (w - sv[2] * k) / 2) + ' ' + (y + (h - sv[3] * k) / 2) + ') scale(' + k + ') translate(' + (-sv[0]) + ' ' + (-sv[1]) + ')');
+          } else if (x || y) g.setAttribute('transform', 'translate(' + x + ' ' + y + ')');
+          ['fill', 'stroke', 'color', 'stroke-width', 'opacity'].forEach(function (a) { var v = use.getAttribute(a) || sym.getAttribute(a); if (v) g.setAttribute(a, v); });
+          Array.prototype.slice.call(sym.childNodes).forEach(function (c) { g.appendChild(c.cloneNode(true)); });
+          use.parentNode.replaceChild(g, use); done = true;
+        });
+        if (!done) return svgText;
+        Array.prototype.slice.call(root.querySelectorAll('symbol')).forEach(function (s) { s.parentNode.removeChild(s); });
+        return new XMLSerializer().serializeToString(root);
+      } catch (e) { return svgText; }
+    }
+    // Figma paints a gradient over the whole box even when CSS shows only a strip of it (animated underlines,
+    // "0px 1px"): that covers the text with a bar. Strips become an underline; anything else partial is dropped.
+    function fixBg(n) {
+      var s = n.styles, bi = s && s.backgroundImage; if (!bi || bi.indexOf('gradient(') < 0) return;
+      var rep = String(s.backgroundRepeat || 'repeat'), r = n.rect || {};
+      var sizes = String(s.backgroundSize || 'auto').split(',').map(function (z) { return z.trim().split(/\s+/); });
+      var px = function (v, full) { if (!v || v === 'auto' || v === 'cover' || v === 'contain') return full; return /%$/.test(v) ? full * parseFloat(v) / 100 : parseFloat(v); };
+      var zero = true, strip = false, part = false;
+      sizes.forEach(function (z) { var w = px(z[0], r.width || 0), h = px(z[1], r.height || 0); if (w > 0.5 && h > 0.5) zero = false; if (h > 0.5 && h <= 4 && w >= 0.9 * (r.width || 0)) strip = true; if (/no-repeat/.test(rep) && (w < 0.9 * (r.width || 0) || h < 0.9 * (r.height || 0))) part = true; });
+      if (!zero && !strip && !part) return;
+      if (/url\(/.test(bi)) return;
+      s.backgroundImage = 'none';
+      if (strip && !zero) s.textDecorationLine = 'underline';
+    }
+    // Figma reads neither currentColor nor colours such as color(srgb 1 1 1 / 0.05) in an SVG and draws them black.
+    var colorCtx = null;
+    function plainColor(v) {
+      try {
+        if (!colorCtx) { var cv = document.createElement('canvas'); cv.width = cv.height = 1; colorCtx = cv.getContext('2d', { willReadFrequently: true }); }
+        if (!(window.CSS && CSS.supports('color', v))) return null;
+        colorCtx.clearRect(0, 0, 1, 1); colorCtx.fillStyle = v; colorCtx.fillRect(0, 0, 1, 1);
+        var d = colorCtx.getImageData(0, 0, 1, 1).data, m = String(v).match(/\/\s*([\d.]+)(%?)\s*\)/), al = m ? parseFloat(m[1]) / (m[2] ? 100 : 1) : d[3] / 255;
+        // a nearly transparent pixel loses its colour: read it at full strength
+        if (d[3] < 250) { colorCtx.clearRect(0, 0, 1, 1); colorCtx.fillStyle = String(v).replace(/\/\s*[\d.]+%?\s*\)/, ')').replace(/^rgba\(([^,]+,[^,]+,[^,]+),[^)]+\)/, 'rgb($1)'); colorCtx.fillRect(0, 0, 1, 1); d = colorCtx.getImageData(0, 0, 1, 1).data; }
+        return { hex: '#' + [d[0], d[1], d[2]].map(function (x) { return ('0' + x.toString(16)).slice(-2); }).join(''), a: Math.round(al * 1000) / 1000 };
+      } catch (e) { return null; }
+    }
+    function fixSvgColors(t, inherited) {
+      var rc = (t.match(/<svg\b[^>]*?\scolor="([^"]+)"/) || [])[1] || inherited || '';
+      return t.replace(/\b(fill|stroke)="((?:color|oklab|oklch|lab|lch)\([^"]*\)|currentColor)"/gi, function (all, at, v) {
+        var p = plainColor(/^currentcolor$/i.test(v) ? rc : v);
+        return p ? at + '="' + p.hex + '"' + (p.a < 1 ? ' ' + at + '-opacity="' + p.a + '"' : '') : all;
+      });
+    }
+    function fixSvgs(j) {
+      var walk = function (n) { if (!n) return; if (n.tag === 'SVG' && typeof n.content === 'string') n.content = fixSvgColors(inlineUse(n.content), (n.styles || {}).color || (n.computedStyles || {}).color); fixBg(n); (n.childNodes || []).forEach(walk); };
+      walk(j.root); return j;
+    }
+    // A capture made while its tab had no real window size (text one letter per line) is never pasted.
+    function brokenSize(x, pl) { var w = x.documentRect && x.documentRect.width, v = x.viewportRect && x.viewportRect.width; return (v > 0 && v < 300) || (w > 0 && pl.pageWidth && w < 0.5 * pl.pageWidth); }
+    var skippedPages = [];
+    var layerPages = []; // the pages inside the last layersHtml(), so the plugin can sort the pasted frames by website
+    // ---- Pictures at a sensible size. Sites serve 12 MB PNG photos for a 72 px avatar; hundreds of them made the
+    // clipboard 600 MB, which neither the server nor Figma takes. Big ones are re-encoded for the size they are
+    // shown at (2x, at least 800 px, at most 2560 px wide). Each address is done once.
+    var slimDone = {};
+    async function slimOne(url, v, shown) {
+      var b = v.blob, src = b.base64Blob, body = src.slice(src.indexOf(',') + 1);
+      var bytes = b64Bytes(body), bm = await createImageBitmap(new Blob([bytes], { type: b.type }));
+      var want = Math.min(2560, shown ? Math.max(800, Math.ceil(shown * 2)) : 2560), k = Math.min(1, want / bm.width, 8000 / bm.height);
+      var w = Math.max(1, Math.round(bm.width * k)), h = Math.max(1, Math.round(bm.height * k));
+      var cv = new OffscreenCanvas(w, h), g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(bm, 0, 0, w, h); bm.close && bm.close();
+      var tw = Math.min(64, w), th = Math.min(64, h), t = new OffscreenCanvas(tw, th), tg = t.getContext('2d', { willReadFrequently: true }); tg.drawImage(cv, 0, 0, tw, th);
+      var d = tg.getImageData(0, 0, tw, th).data, alpha = false; for (var i = 3; i < d.length; i += 4) if (d[i] < 250) { alpha = true; break; }
+      var out = await cv.convertToBlob(alpha ? { type: 'image/webp', quality: 0.92 } : { type: 'image/jpeg', quality: 0.88 });
+      if (out.size > 0.8 * bytes.length) return null;
+      var buf = new Uint8Array(await out.arrayBuffer()), bin = ''; for (i = 0; i < buf.length; i += 8192) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 8192));
+      return { type: out.type, base64Blob: 'data:' + out.type + ';base64,' + btoa(bin) };
+    }
+    async function slimAssets(pages) {
+      var shown = {}, jobs = {};
+      var see = function (u2, w) { if (u2) shown[u2] = Math.max(shown[u2] || 0, w || 0); };
+      pages.forEach(function (x) {
+        var walk = function (n) { if (!n) return; var r = n.rect || {}, s = n.styles || {}, a = n.attributes || {}; if (n.tag === 'IMG') { see(a.src, r.width); see(n.currentSrc, r.width); } (String(s.backgroundImage || '').match(/url\("?[^")]+/g) || []).forEach(function (m) { see(m.replace(/url\("?/, ''), Math.max(r.width || 0, (r.height || 0) * 2)); }); (n.childNodes || []).forEach(walk); };
+        walk(x.root);
+        Object.keys(x.assets || {}).forEach(function (k) { var v = x.assets[k], b = v && v.blob; if (b && typeof b.base64Blob === 'string' && b.base64Blob.length > 400000 && /^image\/(png|jpeg|webp)$/.test(b.type)) (jobs[k] = jobs[k] || []).push(v); });
+      });
+      var keys = Object.keys(jobs), q = 0, done = 0;
+      await Promise.all([0, 1, 2, 3].map(async function () {
+        while (q < keys.length) {
+          var k = keys[q++], list = jobs[k], id = k + '|' + list[0].blob.base64Blob.length + '|' + Math.round(shown[k] || 0);
+          if (slimDone[id] === undefined) { try { slimDone[id] = await slimOne(k, list[0], shown[k]); } catch (e) { slimDone[id] = null; } }
+          if (slimDone[id]) list.forEach(function (v) { v.blob = slimDone[id]; });
+          done++; setStatus('Preparing pictures… ' + done + ' of ' + keys.length, 12);
+        }
+      }));
+    }
+    // The pages to paste, split into portions the clipboard and Figma take at once.
+    var PORTION = 28e6;
+    async function layerPortions(sel) {
+      var all = []; layerPages = []; skippedPages = [];
       sel.forEach(function (c) {
         var pl = cache[c.id]; if (!pl || !pl.figmaJson) return;
         var j = JSON.parse(pl.figmaJson);
-        (Array.isArray(j) ? j : [j]).forEach(function (x, n) { x.documentTitle = hostOf(c.url) + pathOf(c.url) + ' — Figma page' + (n ? ' ' + (n + 1) : ''); all.push(x); });
+        (Array.isArray(j) ? j : [j]).forEach(function (x, n) { if (brokenSize(x, pl)) { skippedPages.push(hostOf(c.url) + pathOf(c.url)); return; } fixSvgs(x); x.documentTitle = hostOf(c.url) + pathOf(c.url) + ' — Figma page' + (n ? ' ' + (n + 1) : ''); layerPages.push({ name: x.documentTitle, host: hostOf(c.url), docW: (x.documentRect && x.documentRect.width) || 0, docH: (x.documentRect && x.documentRect.height) || 0 }); all.push(x); });
       });
       if (!all.length) return null;
+      await slimAssets(all);
+      var out = [], cur = null;
+      all.forEach(function (x) {
+        var text = JSON.stringify(x);
+        if (!cur || cur.size + text.length > PORTION) { cur = { size: 0, parts: [], names: [] }; out.push(cur); }
+        cur.size += text.length; cur.parts.push(text); cur.names.push(x.documentTitle);
+      });
+      return out;
+    }
+    function portionHtml(portion) {
       var at = new Date().toISOString();
       var meta = { dataType: 'h2d', source: 'chrome-extension', capturedAtIso: at, h2d: { v: 1, origin: { source: 'chrome-extension', capturedAtIso: at } } };
-      return '<span data-metadata="\x3c!--(figmeta)' + b64Text(JSON.stringify(meta)) + '(/figmeta)--\x3e"></span><span data-h2d="\x3c!--(figh2d)' + b64Text(JSON.stringify(all)) + '(/figh2d)--\x3e"></span>';
-    }
-    function copyHtml(html) {
-      var ta = document.createElement('textarea'); ta.value = ' ';
-      ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0'; document.body.appendChild(ta);
-      var ok = false;
-      var h = function (e) { e.clipboardData.setData('text/html', html); e.clipboardData.setData('text/plain', ''); e.preventDefault(); ok = true; };
-      document.addEventListener('copy', h);
-      try { ta.select(); document.execCommand('copy'); } catch (e) {}
-      document.removeEventListener('copy', h); ta.remove();
-      return ok;
+      return '<span data-metadata="\x3c!--(figmeta)' + b64Text(JSON.stringify(meta)) + '(/figmeta)--\x3e"></span><span data-h2d="\x3c!--(figh2d)' + b64Text('[' + portion.parts.join(',') + ']') + '(/figh2d)--\x3e"></span>';
     }
     function mergeDesigns(ds) {
       var sum = function (arrays, idf) {
@@ -3699,101 +3855,274 @@ function renderReport(root) {
       }
       return null;
     }
-    async function autoPasteLayers(loc, html, name) {
-      var prep = await askLayers('FIGAPTURE_LAYERS_PREP', { name: name }, 20000);
-      if (!prep.ok) throw new Error(prep.error || 'Could not make the layers Section.');
-      var id = prep.id, ok = false;
-      try {
-        setStatus('Putting the layers on the clipboard…', 15);
-        var c = await nj(loc.port, '/transfer/native/set-clipboard', { html: html }, 90000);
-        if (!c.ok) { fsAuto.err = c.error || 'Could not write the clipboard.'; return { ok: false }; }
-        setStatus('Clicking the canvas…', 20);
-        var f = await nj(loc.port, '/transfer/native/focus', { fileName: prep.fileName, panelX: loc.panelX, panelY: loc.panelY }, 20000);
-        if (!f.ok) { fsAuto.err = f.error || 'Could not click the canvas.'; fsAuto.needsAccess = !!f.needsAccess; fsAuto.accessApp = f.accessApp || ''; return { ok: false }; }
-        await askLayers('FIGAPTURE_LAYERS_SELECT', { id: id }, 10000);
-        setStatus('Pressing Cmd+V…', 24);
-        var p = await nj(loc.port, '/transfer/native/paste', { fileName: prep.fileName, kind: 'h2d', changeCount: c.changeCount }, 20000);
-        if (!p.ok) { fsAuto.err = p.error || 'Paste failed.'; fsAuto.needsAccess = !!p.needsAccess; fsAuto.accessApp = p.accessApp || ''; return { ok: false }; }
-        // Wait until Figma has finished building the layers (the count stops growing).
-        var count = 0, last = -1, since = Date.now(), start = Date.now();
-        while (Date.now() - start < 180000) {
-          await wait(700);
-          count = (await askLayers('FIGAPTURE_LAYERS_COUNT', { id: id }, 10000)).count || 0;
-          setStatus('Pasting the editable layers… ' + count + ' layer(s)', 25 + 33 * (1 - Math.exp(-count / 400)));
-          if (count !== last) { last = count; since = Date.now(); }
-          else if (count > 0 && Date.now() - since > 3000) break;
-          if (!count && Date.now() - start > 30000) break;
+    // Pastes the layers without any step for the user, one portion after the other. If another app or file is in
+    // front when it is time to paste, it waits and carries on by itself as soon as this file is in front again.
+    async function autoPasteLayers(loc, portions, name) {
+      var fail = function (r, msg) { fsAuto.err = (r && r.error) || msg; fsAuto.needsAccess = !!(r && r.needsAccess); fsAuto.accessApp = (r && r.accessApp) || ''; return { ok: false }; };
+      var until = Date.now() + 30 * 60000, total = layerPages.length;
+      // Click the canvas; wait for as long as the file is not in front.
+      var focus = async function (fileName, label) {
+        for (;;) {
+          var f = await nj(loc.port, '/transfer/native/focus', { fileName: fileName, panelX: loc.panelX, panelY: loc.panelY }, 20000);
+          if (f.ok || !f.notFront || Date.now() > until) { if (f.ok) setStatus(label); return f; }
+          setStatus('Waiting: another app or file is in front. It continues by itself when you are back in "' + fileName + '".');
+          await wait(1500);
         }
-        if (!count) { fsAuto.err = 'No layers appeared within 30 seconds after Cmd+V (the canvas may not have had focus). Keep this panel over the canvas, not over the side panels, and try again.'; return { ok: false }; }
-        await askLayers('FIGAPTURE_LAYERS_FIT', { id: id, name: name }, 20000);
+      };
+      setStatus('Getting ready to paste…', 14);
+      var prep = await askLayers('FIGAPTURE_LAYERS_PREP', { name: name }, 30000);
+      if (!prep.ok) throw new Error(prep.error || 'Could not make the layers Section.');
+      var id = prep.id, ok = false, names = [], have = 0, count = 0;
+      try {
+        for (var pi = 0; pi < portions.length; pi++) {
+          var portion = portions[pi], html = portionHtml(portion), arrived = false;
+          names = names.concat(portion.names);
+          var label = portions.length > 1 ? ' (part ' + (pi + 1) + ' of ' + portions.length + ')' : '';
+          for (var attempt = 1; attempt <= 3 && !arrived; attempt++) {
+            var f = await focus(prep.fileName, 'Pasting the editable layers' + label + '…');
+            if (!f.ok) return fail(f, 'Could not click the canvas.');
+            var p = null;
+            for (var go = 0; go < 40 && Date.now() < until; go++) {
+              var c = await nj(loc.port, '/transfer/native/set-clipboard', { html: html }, 120000);
+              if (!c.ok) return fail(c, 'Could not write the clipboard.');
+              f = await focus(prep.fileName, 'Pasting the editable layers' + label + '…');
+              if (!f.ok) return fail(f, 'Could not click the canvas.');
+              await askLayers('FIGAPTURE_LAYERS_SELECT', { id: id }, 20000);
+              p = await nj(loc.port, '/transfer/native/paste', { fileName: prep.fileName, kind: 'h2d', changeCount: c.changeCount }, 20000);
+              if (p.ok || !(p.notFront || p.clipboardChanged)) break; // the user switched away or copied something: do it again
+            }
+            if (!p || !p.ok) return fail(p, 'Paste failed.');
+            // Wait until this portion's pages are there and have stopped growing.
+            var base = count, last = -1, since = Date.now(), start = Date.now();
+            while (Date.now() - start < 240000) {
+              await wait(500);
+              var ct = await askLayers('FIGAPTURE_LAYERS_COUNT', { id: id, names: names }, 60000), pages = ct.pages || 0; count = ct.count || 0;
+              setStatus('Pasting the editable layers' + label + '… page ' + Math.min(total, pages) + ' of ' + total + ', ' + count + ' layers', 15 + 44 * Math.min(1, (Math.max(have, pages) + (count > base && pages < names.length ? 0.5 : 0)) / total));
+              if (count !== last) { last = count; since = Date.now(); }
+              else if (count > base && Date.now() - since > (pages >= names.length ? 1500 : 20000)) { arrived = true; break; }
+              if (count <= base && Date.now() - start > 25000) break;
+            }
+            if (count > base) arrived = true;
+          }
+          if (!arrived) return fail(null, 'Figma did not accept part ' + (pi + 1) + ' of ' + portions.length + ' after 3 tries. Keep this panel over the empty canvas, not over the side panels.');
+          have = names.length; portion.parts = null; // free the memory
+        }
+        await askLayers('FIGAPTURE_LAYERS_FIT', { id: id, name: name }, 60000);
         fsAuto.pasted = count; ok = true; setPct(60);
         return { ok: true, id: id };
       } finally {
-        if (!ok) { try { await askLayers('FIGAPTURE_LAYERS_FIT', { id: id, removeIfEmpty: true }, 10000); } catch (e) {} }
+        if (!ok) { try { await askLayers('FIGAPTURE_LAYERS_FIT', { id: id, removeIfEmpty: true }, 20000); } catch (e) {} }
       }
+    }
+
+    // ---- boxes, gradients, video frames: data the plugin needs to fix the pasted layers ----------------
+    function parseRgba(str) {
+      var m = String(str || '').match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)/);
+      if (!m) return null;
+      var a = m[4] === undefined ? 1 : (m[4].indexOf('%') >= 0 ? parseFloat(m[4]) / 100 : parseFloat(m[4]));
+      return [m[1] / 255, m[2] / 255, m[3] / 255, isNaN(a) ? 1 : a];
+    }
+    function isNoneVal(v, zero) { return !v || v === 'none' || v === zero || v === zero + ' ' + zero || v === '1 1' || v === '1 1 1'; }
+    function isIdentityTf(t) {
+      if (!t || t === 'none') return true;
+      var m = String(t).match(/^matrix(3d)?\(([^)]*)\)$/); if (!m) return false;
+      var v = m[2].split(',').map(parseFloat);
+      if (m[1]) return Math.abs(v[0] - 1) < 1e-3 && Math.abs(v[1]) < 1e-3 && Math.abs(v[4]) < 1e-3 && Math.abs(v[5] - 1) < 1e-3 && Math.abs(v[12]) < 0.5 && Math.abs(v[13]) < 0.5;
+      return Math.abs(v[0] - 1) < 1e-3 && Math.abs(v[1]) < 1e-3 && Math.abs(v[2]) < 1e-3 && Math.abs(v[3] - 1) < 1e-3 && Math.abs(v[4]) < 0.5 && Math.abs(v[5]) < 0.5;
+    }
+    // Every visible element box of the captured page (document px), in tree order, with its parent box.
+    // flags: 1 = moved by a CSS transform (the plugin leaves those alone), 2 = has a background colour.
+    function fsBoxes(j) {
+      var boxes = [], grads = [], special = [], texts = [];
+      var norm = function (s) { return String(s || '').replace(/[\s\u00a0\u200b]+/g, '').toLowerCase(); };
+      var raw = function (t) { return t.text !== undefined ? t.text : (t.textContent !== undefined ? t.textContent : (t.nodeValue || '')); };
+      // All text of an element whose content is inline, with the area it covers.
+      var inlineText = function (n) { var s = '', u = null, lines = 0, ok = true, br = [], pv = null, NR = n.rect || {}; var go = function (k, top) { if (!ok) return; if (k.nodeType === 3) { var t = raw(k), r = k.rect; if (r && r.width > 0 && norm(t)) { if (pv && r.y >= pv.y + pv.height - 0.45 * Math.min(pv.lh, r.height)) { var fw = (t.trim().split(/\s+/)[0] || '').length, one = (k.lineCount || 1) === 1, fit = !one ? false : pv.x + pv.width + r.width * (fw + 1) / Math.max(1, t.trim().length) < NR.x + NR.width - 4; if (pv.n > 1 || fit || (!/[\s\u00a0]$/.test(s) && !/^[\s\u00a0]/.test(t))) { br.push(norm(s).length); if (r.y - pv.y - pv.height > 0.6 * pv.lh) br.push(norm(s).length); } } pv = { x: r.x, y: r.y, width: r.width, height: r.height, n: k.lineCount || 1, lh: r.height / (k.lineCount || 1) }; } s += t; if (r && r.width > 0 && norm(t)) { lines = Math.max(lines, k.lineCount || 1); u = u ? { x: Math.min(u.x, r.x), y: Math.min(u.y, r.y), r: Math.max(u.r, r.x + r.width), b: Math.max(u.b, r.y + r.height) } : { x: r.x, y: r.y, r: r.x + r.width, b: r.y + r.height }; } return; } if (k.nodeType !== 1) return; if (k.tag === 'BR') { if (br[br.length - 1] !== norm(s).length) br.push(norm(s).length); return; } if (!top && (k.tag === 'SVG' || k.tag === 'IMG' || !/^inline$/.test((k.styles || {}).display || 'inline'))) { if (k.tag !== 'BR') ok = false; return; } (k.childNodes || []).forEach(function (q) { go(q, false); }); }; go(n, true); return ok && u ? { s: norm(s), u: u, lines: lines, br: br.filter(function (b) { return b > 0 && b < norm(s).length; }) } : null; };
+      var r3 = function (v) { return Math.round(v * 1000) / 1000; };
+      var walk = function (n, parent, tf) {
+        if (!n || n.nodeType !== 1 || boxes.length > 60000) return;
+        var s = n.styles || {}, r = n.rect || {}, d = s.display;
+        if (d === 'none') return;
+        var w = r.width || 0, h = r.height || 0;
+        var hasGrad = /gradient\(/.test(s.backgroundImage || '');
+        var bg = parseRgba(s.backgroundColor), hasBg = !!bg && bg[3] > 0.001;
+        var rep = n.tag === 'IMG' || n.tag === 'VIDEO' || n.tag === 'CANVAS' || n.tag === 'SVG';
+        var moved = !isIdentityTf(s.transform) || !isNoneVal(s.rotate, '0deg') || !isNoneVal(s.scale, '1') || !isNoneVal(s.translate, '0px');
+        var idx = -1;
+        if (d !== 'contents' && w >= 0.5 && h >= 0.5 && (d !== 'inline' || hasBg || hasGrad || rep)) {
+          idx = boxes.length;
+          boxes.push([r3(r.x || 0), r3(r.y || 0), r3(w), r3(h), parent, (moved || tf ? 1 : 0) | (hasBg ? 2 : 0), bg ? r3(bg[0]) : 0, bg ? r3(bg[1]) : 0, bg ? r3(bg[2]) : 0, bg ? r3(bg[3]) : 0]);
+          if (hasGrad) grads.push({ bx: idx, bi: s.backgroundImage, bg: s.backgroundColor || '', size: s.backgroundSize || 'auto', pos: (s.backgroundPositionX || '0%') + ' ' + (s.backgroundPositionY || '0%'), rep: s.backgroundRepeat || 'repeat', clip: s.backgroundClip || '', r: [s.borderTopLeftRadius, s.borderTopRightRadius, s.borderBottomRightRadius, s.borderBottomLeftRadius] });
+          if (n.tag === 'VIDEO' || n.tag === 'CANVAS') special.push({ tag: n.tag, idx: idx });
+        }
+        var kids = n.childNodes || [];
+        if (d !== 'inline' && kids.some(function (k) { return k.nodeType === 3 || (k.nodeType === 1 && (k.styles || {}).display === 'inline'); })) { var it = inlineText(n); if (it && it.s && !moved && !tf) { var lh = parseFloat(s.lineHeight), lc = lh > 0 ? Math.max(1, Math.round((it.u.b - it.u.y) / lh)) : it.lines; texts.push([it.s, r3(it.u.x), r3(it.u.y), r3(it.u.r - it.u.x), r3(it.u.b - it.u.y), s.textAlign || 'left', lc, it.br]); } }
+        for (var i = 0; i < kids.length; i++) walk(kids[i], idx >= 0 ? idx : parent, tf || moved);
+      };
+      walk(j.root, -1, false);
+      return { boxes: boxes, grads: grads, special: special, texts: texts };
+    }
+    // Any picture (data URL) -> PNG/JPEG bytes Figma accepts (<= 4096 px).
+    async function imageBytes(dataUrl) {
+      var m = String(dataUrl || '').match(/^data:([^;,]+)?(;base64)?,(.*)$/); if (!m) return null;
+      var mime = m[1] || '', bytes = m[2] ? b64Bytes(m[3]) : new TextEncoder().encode(decodeURIComponent(m[3]));
+      var bm = await createImageBitmap(new Blob([bytes], { type: mime || 'image/png' }));
+      var w = bm.width, h = bm.height, k = Math.min(1, 4096 / Math.max(w, h));
+      if ((mime === 'image/png' || mime === 'image/jpeg') && k === 1) { bm.close && bm.close(); return bytes; }
+      var cv = new OffscreenCanvas(Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k)));
+      cv.getContext('2d').drawImage(bm, 0, 0, cv.width, cv.height); bm.close && bm.close();
+      return new Uint8Array(await (await cv.convertToBlob({ type: 'image/png' })).arrayBuffer());
+    }
+    // Last resort for a <video>: cut its rectangle out of the full-page screenshot (slices are stacked top to bottom).
+    async function cropShot(pl, x, y, w, h) {
+      var slices = pl.slices || [], dpr = pl.dpr || 1;
+      var X = Math.round(x * dpr), Y = Math.round(y * dpr), Wd = Math.max(1, Math.round(w * dpr)), Hd = Math.max(1, Math.round(h * dpr));
+      var k = Math.min(1, 4096 / Math.max(Wd, Hd));
+      var cv = new OffscreenCanvas(Math.max(1, Math.round(Wd * k)), Math.max(1, Math.round(Hd * k))), g = cv.getContext('2d');
+      var top = 0, any = false;
+      for (var i = 0; i < slices.length; i++) {
+        var sl = slices[i], bottom = top + sl.height;
+        if (bottom > Y && top < Y + Hd) {
+          var bm = await createImageBitmap(new Blob([b64Bytes(sl.b64)], { type: 'image/png' }));
+          var sy0 = Math.max(0, Y - top), sy1 = Math.min(sl.height, Y + Hd - top), sx0 = Math.max(0, X), sx1 = Math.min(sl.width, X + Wd);
+          if (sx1 > sx0 && sy1 > sy0) { g.drawImage(bm, sx0, sy0, sx1 - sx0, sy1 - sy0, (sx0 - X) * k, (top + sy0 - Y) * k, (sx1 - sx0) * k, (sy1 - sy0) * k); any = true; }
+          bm.close && bm.close();
+        }
+        top = bottom;
+      }
+      if (!any) return null;
+      return new Uint8Array(await (await cv.convertToBlob({ type: 'image/png' })).arrayBuffer());
+    }
+    function near(a, b, t) { return Math.abs(a.x - b[0]) <= t && Math.abs(a.y - b[1]) <= t && Math.abs(a.w - b[2]) <= t && Math.abs(a.h - b[3]) <= t; }
+    async function fixPage(c, pl, j, n) {
+      var info = fsBoxes(j), boxes = info.boxes, grads = info.grads, page = { name: hostOf(c.url) + pathOf(c.url) + ' — Figma page' + (n ? ' ' + (n + 1) : ''), docW: (j.documentRect && j.documentRect.width) || 0, docH: (j.documentRect && j.documentRect.height) || 0, boxes: boxes, grads: grads, texts: info.texts, videos: [], canvases: [], notes: [] };
+      var ex = n === 0 ? pl.extras : null; if (!ex) return page;
+      var virtual = function (o, withBg) { boxes.push([o.x, o.y, o.w, o.h, -1, 8 | (withBg ? 2 : 0), 0, 0, 0, 0]); return boxes.length - 1; };
+      // gradients the capture engine did not list (::before / ::after, ...)
+      (ex.gradients || []).forEach(function (g) {
+        if (!g || !(g.w >= 1 && g.h >= 1) || !g.bi) return;
+        var dup = grads.some(function (q) { return q.bi === g.bi && near(g, boxes[q.bx], 3); });
+        if (dup) return;
+        var bg = parseRgba(g.bg), bx = virtual(g, bg && bg[3] > 0.001);
+        if (bg) { boxes[bx][6] = bg[0]; boxes[bx][7] = bg[1]; boxes[bx][8] = bg[2]; boxes[bx][9] = bg[3]; }
+        grads.push({ bx: bx, bi: g.bi, bg: g.bg || '', size: g.size || 'auto', pos: g.pos || '0% 0%', rep: g.rep || 'repeat', clip: g.clip || '', r: g.r || [] });
+      });
+      var boxFor = function (tag, o) {
+        var hit = null;
+        info.special.forEach(function (sp) { if (!hit && sp.tag === tag && near(o, boxes[sp.idx], 4)) hit = sp.idx; });
+        return hit !== null ? hit : virtual(o, false);
+      };
+      // <video>: real first frame -> poster -> crop of the screenshot. Never left empty.
+      for (var vi = 0; vi < (ex.videos || []).length; vi++) {
+        var v = ex.videos[vi], bytes = null, how = '';
+        if (v.x + v.w <= 0 || v.y + v.h <= 0 || v.x >= page.docW || v.y >= page.docH || v.w < 8 || v.h < 8) continue; // off the page (carousel copies)
+        try { if (v.frame) { bytes = await imageBytes(v.frame); how = 'frame'; } } catch (e) { bytes = null; }
+        try { if (!bytes && v.posterData) { bytes = await imageBytes(v.posterData); how = 'poster'; } } catch (e) { bytes = null; }
+        try { if (!bytes) { bytes = await cropShot(pl, v.x, v.y, v.w, v.h); how = 'screenshot'; } } catch (e) { bytes = null; }
+        if (!bytes) { page.notes.push('video ' + (vi + 1) + ': no picture available'); continue; }
+        page.videos.push({ bx: boxFor('VIDEO', v), bytes: bytes, r: v.r || [], fit: bytes && how === 'screenshot' ? 'cover' : (v.fit || 'cover'), how: how });
+      }
+      for (var ci = 0; ci < (ex.canvases || []).length; ci++) {
+        var cvx = ex.canvases[ci]; if (!cvx.data || cvx.x + cvx.w <= 0 || cvx.x >= page.docW || cvx.y >= page.docH) continue;
+        try { var cb = await imageBytes(cvx.data); if (cb) page.canvases.push({ bx: boxFor('CANVAS', cvx), bytes: cb, r: cvx.r || [], fit: 'cover' }); } catch (e) { /* skip this canvas */ }
+      }
+      return page;
+    }
+    // Send gradients / video frames / box positions to the plugin; it matches them to the pasted layers.
+    async function runFixes(caps, secId) {
+      setStatus('Fixing gradients, positions and auto layout…', 61);
+      var pages = [];
+      for (var i = 0; i < caps.length; i++) {
+        var pl = cache[caps[i].id]; if (!pl || !pl.figmaJson) continue;
+        var arr = JSON.parse(pl.figmaJson); if (!Array.isArray(arr)) arr = [arr];
+        for (var n = 0; n < arr.length; n++) if (!brokenSize(arr[n], pl)) pages.push(await fixPage(caps[i], pl, arr[n], n));
+      }
+      if (!pages.length) return '';
+      var r = await askLayers('FIGAPTURE_LAYERS_FIX', { id: secId, pages: pages, options: { pin: choices.pin !== false } }, 300000);
+      if (!r || !r.ok) return 'Gradient/box fix skipped: ' + ((r && r.error) || 'no answer');
+      var g = 0, gm = 0, vd = 0, cn = 0, matched = 0, boxesN = 0, moved = 0, mb = 0, ma = 0, alF = 0, alP = 0, notes = [];
+      (r.results || []).forEach(function (x) {
+        if (x.auto) { alF += x.auto.frames || 0; alP += x.auto.pinned || 0; if (x.auto.moved) notes.push(x.auto.moved + ' layer(s) shifted while adding auto layout'); }
+        if (x.autoError) notes.push('auto layout: ' + x.autoError);
+        if (x.error) { notes.push(x.error); return; }
+        g += x.gradients || 0; gm += (x.gradientsMissed || 0); vd += x.videos || 0; cn += x.canvases || 0; matched += x.matched || 0; boxesN += x.boxes || 0;
+        if (x.pin) { moved += x.pin.adjusted || 0; mb = Math.max(mb, x.pin.maxBefore || 0); ma = Math.max(ma, x.pin.maxAfter || 0); }
+      });
+      pages.forEach(function (p) { (p.notes || []).forEach(function (t) { notes.push(t); }); });
+      var parts = [];
+      if (g || gm) parts.push(g + ' gradient fill(s)' + (gm ? ' (' + gm + ' not matched)' : ''));
+      if (vd) parts.push(vd + ' video first frame(s)');
+      if (cn) parts.push(cn + ' canvas picture(s)');
+      if (choices.pin !== false && boxesN) parts.push('boxes matched ' + matched + '/' + boxesN + ', ' + moved + ' aligned (worst gap ' + (Math.round(mb * 10) / 10) + 'px → ' + (Math.round(ma * 10) / 10) + 'px)');
+      if (alF) parts.push('auto layout added to ' + alF + ' frame(s), ' + alP + ' layer(s) kept as absolute position');
+      return (parts.length ? 'Fixes: ' + parts.join('; ') + '.' : '') + (notes.length ? ' Notes: ' + notes.join('; ') + '.' : '');
     }
 
     async function paste(sel, ev) {
       if (!sel.length) { setStatus('Tick at least one page first.'); return; }
       if (busy) return;
-      busy = true; needCopy = false; fsAuto = { err: '', needsAccess: false, accessApp: '', pasted: 0, auto: false }; fsPct = 0; fsStatus = 'Starting…'; rerender(); setPct(2);
+      var chOf = function (c) { return effChoice(hostOf(c.url)); };
+      var layerCaps = sel.filter(function (c) { return chOf(c).figma; });
+      var shotCaps = sel.filter(function (c) { return chOf(c).shot; });
+      var dsHosts = {}; sel.forEach(function (c) { if (chOf(c).ds) dsHosts[hostOf(c.url)] = 1; });
+      if (!layerCaps.length && !shotCaps.length && !Object.keys(dsHosts).length) { setStatus('Nothing to paste: tick Figma, Screenshot or DS first.'); return; }
+      busy = true; fsFixNote = ''; fsAuto = { err: '', needsAccess: false, accessApp: '', pasted: 0, auto: false }; fsPct = 0; fsStatus = 'Starting…'; rerender(); setPct(2);
       try {
-        // 0) Where is this panel? Read it at once, while the pointer is still on the button.
-        var locP = locate(ev, sel[0] && sel[0].port);
-        // 1) Layers -> clipboard now (while the click's user gesture is still valid), so a
-        //    manual Cmd+V still works if the automatic paste can't run.
-        var copied = false, hasLayers = false;
-        if (sel.every(function (c) { return cache[c.id]; })) {
-          var html = layersHtml(sel); hasLayers = !!html;
-          if (html) { lastCopyHtml = html; copied = copyHtml(html); }
-        }
+        // 0) Where is this panel? Read it at once, while the pointer is still on the button (only needed for the layers).
+        var locP = layerCaps.length ? locate(ev, layerCaps[0].port) : Promise.resolve(null);
+        var hasLayers = false;
         var loc = await locP;
-        setStatus('Loading captures…', 6);
-        await Promise.all(sel.map(load));
+        var dataCaps = sel.filter(function (c) { return chOf(c).figma || chOf(c).shot; });
+        if (dataCaps.length) { setStatus('Loading captures…', 6); await Promise.all(dataCaps.map(load)); }
         setPct(12);
-        var h2 = layersHtml(sel); hasLayers = !!h2;
-        if (h2) { lastCopyHtml = h2; if (!copied) copied = copyHtml(h2); }
-        // 2) Paste the editable layers FIRST, automatically.
+        var h2 = layerCaps.length ? await layerPortions(layerCaps) : null; hasLayers = !!h2;
+        // 2) Paste the editable layers FIRST, automatically (only when "Figma" is ticked).
         var layerSectionId = null;
         if (hasLayers) {
           if (!loc) fsAuto.err = 'Automatic paste needs the latest Figma Console server (quit and reopen Claude).';
           else {
-            var names = sel.map(function (c) { return hostOf(c.url) + pathOf(c.url); });
+            var names = layerCaps.map(function (c) { return hostOf(c.url) + pathOf(c.url); });
             var name = 'Figma layers — ' + (names.length > 2 ? names.slice(0, 2).join(', ') + ' +' + (names.length - 2) : names.join(', '));
             try {
               var ap = await autoPasteLayers(loc, h2, name);
-              if (ap.ok) { layerSectionId = ap.id; fsAuto.auto = true; }
+              if (ap.ok) {
+                layerSectionId = ap.id; fsAuto.auto = true;
+                // Real gradient fills, video first frames, boxes lined up with the page.
+                try { fsFixNote = await runFixes(layerCaps, ap.id); } catch (e) { fsFixNote = 'Gradient/box fix failed: ' + String(e && e.message || e); }
+              }
             } catch (e) { fsAuto.err = String(e && e.message || e); }
           }
-          if (!fsAuto.auto && !copied) copied = copyHtml(h2);
+          // Never leave a half result that needs work by hand: without the layers nothing is built.
+          if (!fsAuto.auto) { busy = false; fsPct = null; fsStatus = 'Nothing was pasted.'; rerender(); return; }
         }
         // 3) Then screenshots, then the design system -> built natively by the plugin.
-        setStatus(fsAuto.auto ? 'Layers pasted ✓ — preparing screenshots…' : 'Preparing screenshots…', 60);
+        setStatus(fsAuto.auto ? 'Layers pasted ✓ — preparing screenshots…' : 'Preparing…', 62);
         var sliceTotal = 0, sliceDone = 0;
-        sel.forEach(function (c) { sliceTotal += ((cache[c.id] && cache[c.id].slices) || []).length; });
+        shotCaps.forEach(function (c) { sliceTotal += ((cache[c.id] && cache[c.id].slices) || []).length; });
         var byHost = {}, hosts = [];
         sel.forEach(function (c) { var h = hostOf(c.url); if (!byHost[h]) { byHost[h] = []; hosts.push(h); } byHost[h].push(c); });
         var sites = [];
         for (var hi = 0; hi < hosts.length; hi++) {
-          var host = hosts[hi];
+          var host = hosts[hi], hc = effChoice(host);
           var everyPage = captures.filter(function (c) { return hostOf(c.url) === host; });
-          var ds = (await Promise.all(everyPage.map(loadDesign))).map(function (x) { return x.design; }).filter(Boolean);
+          var ds = hc.ds ? (await Promise.all(everyPage.map(loadDesign))).map(function (x) { return x.design; }).filter(Boolean) : [];
           var pageList = [];
-          for (var bi = 0; bi < byHost[host].length; bi++) {
-            var c = byHost[host][bi], pl = cache[c.id], sls = [];
-            for (var si = 0; si < (pl.slices || []).length; si++) { sls.push(await tileSlice(pl.slices[si])); sliceDone++; setPct(60 + 15 * sliceDone / Math.max(1, sliceTotal)); }
-            pageList.push({ path: pathOf(c.url), title: c.title, url: c.url, pageWidth: pl.pageWidth, dpr: pl.dpr, slices: sls });
+          if (hc.shot) {
+            for (var bi = 0; bi < byHost[host].length; bi++) {
+              var c = byHost[host][bi], pl = cache[c.id], sls = [];
+              for (var si = 0; si < (pl.slices || []).length; si++) { sls.push(await tileSlice(pl.slices[si])); sliceDone++; setPct(62 + 13 * sliceDone / Math.max(1, sliceTotal)); }
+              pageList.push({ path: pathOf(c.url), title: c.title, url: c.url, pageWidth: pl.pageWidth, dpr: pl.dpr, slices: sls });
+            }
           }
           sites.push({
             host: host,
             pages: pageList,
-            design: ds.length ? mergeDesigns(ds) : null,
+            design: hc.ds && ds.length ? mergeDesigns(ds) : null,
             designPages: everyPage.map(function (c) { return { path: pathOf(c.url), title: c.title }; })
           });
         }
-        needCopy = hasLayers && !fsAuto.auto && !copied;
         setStatus('Building in Figma…', 75);
-        parent.postMessage({ pluginMessage: { type: 'FIGAPTURE_BUILD', hasLayers: hasLayers && !fsAuto.auto, layerSectionId: layerSectionId, sites: sites } }, '*');
+        parent.postMessage({ pluginMessage: { type: 'FIGAPTURE_BUILD', hasLayers: false, layerSectionId: layerSectionId, sites: sites, layerPages: layerCaps.length ? layerPages : [], sessionName: 'fiGapture session — ' + new Date().toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) } }, '*');
       } catch (e) {
         busy = false; fsPct = null; setStatus('Failed: ' + (e && e.message || e)); rerender();
       }
@@ -3802,15 +4131,19 @@ function renderReport(root) {
     window.addEventListener('message', function (ev) {
       var m = ev.data && ev.data.pluginMessage;
       if (m && m.type === 'FIGAPTURE_BUILD_PROGRESS') { if (busy) setStatus(m.label || 'Building in Figma…', 75 + 24 * (m.done || 0) / Math.max(1, m.total || 1)); return; }
+      if (m && m.type === 'FIGAPTURE_FIX_PROGRESS') { if (busy) setStatus('Fixing gradients, positions and auto layout… page ' + m.done + '/' + m.total); return; }
+      if (m && m.type === 'FIGAPTURE_PREFS') { if (!prefsTouched && m.value) { applyPrefs(m.value); rerender(); } return; }
       if (!m || m.type !== 'FIGAPTURE_BUILD_RESULT') return;
       busy = false;
       if (!m.ok) { fsPct = null; fsStatus = 'Build failed: ' + m.error; rerender(); return; }
       fsPct = 100;
       var s = m.stats, parts = [];
       if (s.pages) parts.push(s.pages + ' page section(s) with screenshots');
-      if (s.designs) parts.push(s.designs + ' design system(s): ' + s.variables + ' variables, ' + s.textStyles + ' text styles, ' + s.effectStyles + ' shadows, ' + s.components + ' components');
+      if (s.designs) parts.push(s.designs + ' design system frame(s)');
       if (fsAuto.auto) parts.unshift('editable layers pasted (' + fsAuto.pasted + ' layers)');
-      fsStatus = 'Done — ' + (parts.join('; ') || 'nothing to build') + (m.selectedLayers ? (needCopy ? '. Click "Copy layers", then press Cmd+V to paste the page layers into the selected Section.' : '. Now press Cmd+V to paste the page layers into the selected Section.') : '.');
+      fsStatus = 'Done — ' + (parts.join('; ') || 'nothing to build') + '.' + (fsFixNote ? ' ' + fsFixNote : '');
+      if (skippedPages.length) fsStatus += ' Layers skipped (captured at a wrong width, capture again): ' + skippedPages.join(', ') + '.';
+      if (m.groupError) fsStatus += ' Grouping into Sections failed: ' + m.groupError;
       rerender();
     });
 
@@ -3868,7 +4201,15 @@ function renderReport(root) {
             row.appendChild(pcb); row.appendChild(el('span', 'p', pathOf(c.url))); row.appendChild(el('span', 'n', c.sliceCount + ' img')); row.appendChild(x);
             body.appendChild(row);
           });
-          var mini = el('button', 'fs-mini', 'Paste in Figma'); mini.disabled = busy;
+          var own = !!choices.sites[host], eff = effChoice(host);
+          var sc = el('div', 'fs-choices site'), sct = el('div', 'fs-choices-t');
+          sct.appendChild(el('span', '', own ? 'This website only' : 'This website (follows the universal choice)'));
+          if (own) { var rl = el('button', 'fs-link', 'Use universal'); rl.title = 'Forget this website\'s own choice'; rl.onclick = function () { delete choices.sites[host]; savePrefs(); rerender(); }; sct.appendChild(rl); }
+          sc.appendChild(sct);
+          sc.appendChild(choiceRow(eff, function (k, v) { setSite(host, k, v); }));
+          if (!anyOn(eff)) sc.appendChild(el('div', 'fs-hint', 'Nothing ticked: tick Figma, Screenshot or DS to paste this website.'));
+          body.appendChild(sc);
+          var mini = el('button', 'fs-mini', 'Paste in Figma'); mini.disabled = busy || !anyOn(eff);
           mini.title = 'Paste only the ticked pages of ' + host;
           mini.onclick = function (ev) { paste(pageSel, ev); };
           body.appendChild(mini);
@@ -3878,10 +4219,21 @@ function renderReport(root) {
       });
       wrap.appendChild(list);
 
-      var main = el('button', 'fs-main', 'Paste in Figma' + (sel.length ? ' (' + sel.length + ')' : '')); main.disabled = busy || !sel.length;
+      // What to paste for every website that has no choice of its own.
+      var uni = el('div', 'fs-choices'), unit = el('div', 'fs-choices-t');
+      unit.appendChild(el('span', '', 'Paste these parts (all websites)')); uni.appendChild(unit);
+      uni.appendChild(choiceRow(choices.uni, setUni));
+      var pinLab = el('label', 'fs-ck sub'); pinLab.title = 'After pasting, move and resize each layer box so it sits exactly where it is on the page (fixes shifted padding / margins).';
+      var pinCb = el('input'); pinCb.type = 'checkbox'; pinCb.checked = choices.pin !== false;
+      pinCb.onchange = function () { choices.pin = pinCb.checked; savePrefs(); rerender(); };
+      pinLab.appendChild(pinCb); pinLab.appendChild(document.createTextNode('Line layers up with the page (fix spacing)')); uni.appendChild(pinLab);
+      var okAny = sel.some(function (c) { return anyOn(effChoice(hostOf(c.url))); });
+      if (sel.length && !okAny) uni.appendChild(el('div', 'fs-hint', 'Nothing to paste: tick Figma, Screenshot or DS (above, or inside a website).'));
+      else if (!anyOn(choices.uni)) uni.appendChild(el('div', 'fs-hint', 'Nothing ticked here: only websites with their own choice will be pasted.'));
+      wrap.appendChild(uni);
+      var main = el('button', 'fs-main', 'Paste in Figma' + (sel.length ? ' (' + sel.length + ')' : '')); main.disabled = busy || !sel.length || !okAny;
       main.onclick = function (ev) { paste(sel, ev); };
       wrap.appendChild(main);
-      if (needCopy) { var cp = el('button', 'fs-copy', 'Copy layers (then Cmd+V)'); cp.onclick = function () { if (lastCopyHtml && copyHtml(lastCopyHtml)) { needCopy = false; fsStatus = 'Layers copied — press Cmd+V.'; } else fsStatus = 'Copy failed — click the button again.'; rerender(); }; wrap.appendChild(cp); }
       if (fsPct !== null) {
         var pg = el('div', 'fs-prog' + (busy ? '' : ' done')), top = el('div', 'fs-prog-top');
         if (busy) top.appendChild(el('span', 'fs-spin'));
@@ -3892,7 +4244,7 @@ function renderReport(root) {
       }
       var st = el('div'); st.id = 'fs-status'; st.textContent = fsStatus; wrap.appendChild(st);
       if (fsAuto.err && !busy) {
-        var er = el('div', 'tr-msg bad', 'Automatic paste: ' + fsAuto.err + ' The layers are on the clipboard — press Cmd+V to paste them into the selected Section.'); wrap.appendChild(er);
+        var er = el('div', 'tr-msg bad', fsAuto.err); wrap.appendChild(er);
         if (fsAuto.needsAccess) {
           wrap.appendChild(el('div', 'tr-msg', 'One-time setup: System Settings ▸ Privacy & Security ▸ Accessibility — turn on "node" (that is the figma-console server; switching on Claude is not enough), then try again.'));
           if (fsAuto.accessApp) { var ap2 = el('div', 'tr-msg', 'If "node" is not in the list, click +, press Cmd+Shift+G and paste: ' + fsAuto.accessApp); ap2.style.userSelect = 'text'; ap2.style.wordBreak = 'break-all'; wrap.appendChild(ap2); }

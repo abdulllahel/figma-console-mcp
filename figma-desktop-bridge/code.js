@@ -699,6 +699,13 @@ figma.ui.onmessage = async (msg) => {
 
   // Custom fiGapture: build screenshots + design system from captures
   if (msg.type === 'FIGAPTURE_BUILD') { await fiGaptureBuild(msg); return; }
+  if (msg.type === 'FIGAPTURE_PREFS_GET') {
+    var fsPrefs = null;
+    try { fsPrefs = await figma.clientStorage.getAsync('fiGaptureChoices'); } catch (e) { fsPrefs = null; }
+    figma.ui.postMessage({ type: 'FIGAPTURE_PREFS', value: fsPrefs || null });
+    return;
+  }
+  if (msg.type === 'FIGAPTURE_PREFS_SET') { try { await figma.clientStorage.setAsync('fiGaptureChoices', msg.value); } catch (e) { /* storage unavailable: not critical */ } return; }
   if (typeof msg.type === 'string' && msg.type.indexOf('FIGAPTURE_LAYERS_') === 0) { await fiGaptureLayers(msg); return; }
   if (typeof msg.type === 'string' && msg.type.indexOf('TR_') === 0) { await trHandle(msg); return; }
 
@@ -8031,14 +8038,19 @@ function fsParseColor(str) {
 function fsSolid(c) { return { type: 'SOLID', color: { r: c.r, g: c.g, b: c.b }, opacity: c.a === undefined ? 1 : c.a }; }
 function fsPx(v) { var n = parseFloat(v); return isNaN(n) ? 0 : n; }
 
-async function fsLoadFont(family, weight) {
-  var w = Math.round((parseInt(weight, 10) || 400) / 100) * 100;
-  var style = FS_WEIGHT_STYLE[w] || 'Regular';
-  var tries = [{ family: family, style: style }, { family: 'Inter', style: style }, { family: 'Inter', style: 'Regular' }];
-  for (var i = 0; i < tries.length; i++) {
-    try { await figma.loadFontAsync(tries[i]); return tries[i]; } catch (e) { /* try next */ }
-  }
-  return { family: 'Inter', style: 'Regular' };
+// Each font is asked for once: on a big page every font request makes Figma redraw, which costs seconds.
+var fsFontCache = {};
+function fsLoadFont(family, weight) {
+  var w = Math.round((parseInt(weight, 10) || 400) / 100) * 100, k = family + '|' + w;
+  if (!fsFontCache[k]) fsFontCache[k] = (async function () {
+    var style = FS_WEIGHT_STYLE[w] || 'Regular';
+    var tries = [{ family: family, style: style }, { family: 'Inter', style: style }, { family: 'Inter', style: 'Regular' }];
+    for (var i = 0; i < tries.length; i++) {
+      try { await figma.loadFontAsync(tries[i]); return tries[i]; } catch (e) { /* try next */ }
+    }
+    return { family: 'Inter', style: 'Regular' };
+  })();
+  return fsFontCache[k];
 }
 async function fsText(str, size, weight, color, family) {
   var f = await fsLoadFont(family || 'Inter', weight || 400);
@@ -8125,55 +8137,17 @@ async function fsBuildDesign(host, d, pages, x, y, stats) {
   section.name = host + ' — Design system';
   section.x = x; section.y = y;
 
-  // ---- Variables (colors, CSS variables, spacing, radius)
-  try {
-    var col = figma.variables.createVariableCollection(host + ' · fiGapture'); fsCreated.push(col);
-    var mode = col.modes[0].modeId;
-    var addVar = function (name, type, val) {
-      try { var v = figma.variables.createVariable(name, col, type); v.setValueForMode(mode, val); stats.variables++; } catch (e) { /* duplicate name etc. */ }
-    };
-    (d.colors || []).slice(0, 24).forEach(function (c, i) {
-      var rgba = fsParseColor(c.value);
-      if (rgba) addVar('color/' + ('0' + (i + 1)).slice(-2) + '-' + String(c.value).replace('#', ''), 'COLOR', rgba);
-    });
-    var cssEntries = Object.keys(d.cssVariablesResolved || {}).slice(0, 120);
-    cssEntries.forEach(function (k) {
-      var v = String(d.cssVariablesResolved[k]).trim();
-      var name = 'css/' + k.replace(/^--/, '');
-      var c = fsParseColor(v);
-      if (c) addVar(name, 'COLOR', c);
-      else if (/^-?[\d.]+px$/.test(v)) addVar(name, 'FLOAT', parseFloat(v));
-    });
-    (d.spacing || []).slice().sort(function (a, b) { return b.count - a.count; }).slice(0, 12)
-      .sort(function (a, b) { return fsPx(a.value) - fsPx(b.value); })
-      .forEach(function (s) { addVar('space/' + fsPx(s.value), 'FLOAT', fsPx(s.value)); });
-    (d.radii || []).slice(0, 8).forEach(function (r) { if (/px$/.test(r.value)) addVar('radius/' + fsPx(r.value), 'FLOAT', fsPx(r.value)); });
-  } catch (e) { /* variables unavailable in this file type */ }
-
-  // ---- Text styles
-  var styleByIdx = {};
+  // A documentation frame only. Nothing is added to the file itself: no variables, no text / colour /
+  // effect styles and no components.
   var typo = (d.typography || []).slice(0, 10);
-  for (var ti = 0; ti < typo.length; ti++) {
-    try {
-      var t = typo[ti];
-      var f = await fsLoadFont(t.family, t.weight);
-      var st = figma.createTextStyle(); fsCreated.push(st);
-      st.name = 'text/' + ('0' + (ti + 1)).slice(-2) + ' ' + t.family + ' ' + t.size;
-      st.fontName = f; st.fontSize = fsPx(t.size) || 14;
-      var lh = fsPx(t.lineHeight); if (lh > 0) st.lineHeight = { value: lh, unit: 'PIXELS' };
-      var ls = fsPx(t.letterSpacing); if (ls !== 0) st.letterSpacing = { value: ls, unit: 'PIXELS' };
-      styleByIdx[ti] = st; stats.textStyles++;
-    } catch (e) { /* skip */ }
-  }
-  // ---- Effect styles (shadows)
   var shadowStyles = [];
-  (d.shadows || []).slice(0, 8).forEach(function (s, i) {
-    try {
-      var eff = fsParseShadow(s.value); if (!eff) return;
-      var es = figma.createEffectStyle(); fsCreated.push(es); es.name = 'shadow/' + ('0' + (i + 1)).slice(-2); es.effects = [eff];
-      shadowStyles.push({ eff: eff, value: s.value, count: s.count }); stats.effectStyles++;
-    } catch (e) { /* skip */ }
-  });
+  (d.shadows || []).slice(0, 8).forEach(function (s) { var eff = null; try { eff = fsParseShadow(s.value); } catch (e) { eff = null; } if (eff) shadowStyles.push({ eff: eff, value: s.value, count: s.count }); });
+
+  // All fonts up front, at the same time.
+  var fontWant = {}; [400, 500, 600, 700].forEach(function (w) { fontWant['Inter|' + w] = ['Inter', w]; });
+  (d.typography || []).slice(0, 16).forEach(function (t) { fontWant[t.family + '|' + t.weight] = [t.family, t.weight]; });
+  (d.components || []).slice(0, 80).forEach(function (q) { var z = (q.sample && q.sample.styles) || {}; var fam = String(z.fontFamily || 'Inter').split(',')[0].replace(/["']/g, '').trim(); fontWant[fam + '|' + z.fontWeight] = [fam, z.fontWeight]; });
+  await Promise.all(Object.keys(fontWant).map(function (k) { return fsLoadFont(fontWant[k][0], fontWant[k][1]); }));
 
   // ---- Documentation frame
   var W = 1200, INNER = W - 96;
@@ -8210,7 +8184,6 @@ async function fsBuildDesign(host, d, pages, x, y, stats) {
       var tt = d.typography[yi];
       var row = fsFrame('type ' + (yi + 1), 'VERTICAL', 4, 0);
       var sample = await fsText('The quick brown fox jumps over the lazy dog', Math.min(64, fsPx(tt.size) || 14), tt.weight, FS_INK, tt.family);
-      if (styleByIdx[yi]) { try { await sample.setTextStyleIdAsync(styleByIdx[yi].id); } catch (e) { /* keep manual style */ } }
       row.appendChild(sample);
       row.appendChild(await fsText(tt.family + ' · ' + tt.size + ' / ' + tt.lineHeight + ' · weight ' + tt.weight + ' · ×' + tt.count, 11, 400, FS_MUTED));
       ty.appendChild(row);
@@ -8257,11 +8230,11 @@ async function fsBuildDesign(host, d, pages, x, y, stats) {
     }
     sh.appendChild(shg); doc.appendChild(sh);
   }
-  // Components (native Figma components built from the captured computed styles)
+  // Component samples (plain frames built from the captured computed styles)
   var comps = d.components || [];
   if (comps.length) {
     var cp = fsFrame('Components', 'VERTICAL', 24, 0);
-    cp.appendChild(await fsHeading('Components', 'Distinct style variants found on the pages — built as real components'));
+    cp.appendChild(await fsHeading('Components', 'Distinct style variants found on the pages'));
     var byType = {}; var order = [];
     comps.forEach(function (c) { if (!byType[c.type]) { byType[c.type] = []; order.push(c.type); } byType[c.type].push(c); });
     var budget = 48;
@@ -8273,7 +8246,7 @@ async function fsBuildDesign(host, d, pages, x, y, stats) {
       for (var ji = 0; ji < Math.min(8, items.length) && budget > 0; ji++, budget--) {
         try {
           var it = items[ji], stl = it.sample.styles || {};
-          var comp = figma.createComponent();
+          var comp = figma.createFrame();
           comp.name = type + '/' + (ji + 1);
           comp.layoutMode = 'HORIZONTAL'; comp.primaryAxisSizingMode = 'AUTO'; comp.counterAxisSizingMode = 'AUTO';
           comp.primaryAxisAlignItems = 'CENTER'; comp.counterAxisAlignItems = 'CENTER';
@@ -8325,6 +8298,97 @@ function fsNewTopLevel(sec) {
     return n.id !== sec.id && !before[n.id] && !/^⟡/.test(n.name);
   });
 }
+// Figma's HTML paste leaves an invisible "Sticky placeholder – …" frame on the page for position:sticky
+// elements (a size spacer). Remove it, but only when it is really empty and draws nothing.
+function fsDropSpacer(n) {
+  if (n.type !== 'FRAME' || !/^Sticky placeholder/.test(n.name) || n.children.length) return false;
+  var shows = function (a) { return a === figma.mixed || (a || []).some(function (p) { return p.visible !== false; }); };
+  if (shows(n.fills) || shows(n.strokes) || shows(n.effects)) return false;
+  n.remove();
+  return true;
+}
+// Section backgrounds by level (0 = master, 1 = website, 2 = layers / screenshots / design system):
+// each level is one step lighter than the one around it, on dark and on light canvases.
+function fsTint(sec, level, page) {
+  var bg = (page.backgrounds || [])[0], k = bg && bg.type === 'SOLID' ? bg.color : { r: 0.12, g: 0.12, b: 0.12 };
+  var dark = 0.2126 * k.r + 0.7152 * k.g + 0.0722 * k.b < 0.5;
+  var v = (dark ? [0.17, 0.25, 0.34] : [0.84, 0.91, 0.98])[level];
+  sec.fills = [{ type: 'SOLID', color: { r: v, g: v, b: v } }];
+}
+// Lay a Section's children out in one top-aligned row (left to right) and size the Section around them.
+function fsRow(sec, pad, top, gap) {
+  var x = pad, h = 0;
+  sec.children.forEach(function (n) { n.x = x; n.y = top; x += n.width + gap; h = Math.max(h, n.height); });
+  sec.resizeWithoutConstraints(Math.max(400, x - gap + pad), Math.max(300, top + h + pad));
+}
+// Move the pasted top-level frame(s) into the Section and size the Section around them.
+function fsFit(sec, name, removeIfEmpty) {
+  fsNewTopLevel(sec).forEach(function (n) { if (!fsDropSpacer(n)) sec.appendChild(n); });
+  if (!sec.children.length) { delete fsLayersBefore[sec.id]; if (removeIfEmpty) sec.remove(); return { empty: true }; }
+  fsRow(sec, 80, 80, 80);
+  sec.name = name || sec.name;
+  return { width: sec.width, height: sec.height, top: sec.children.length };
+}
+
+// ---- Grouping: one Section per website; several websites in one paste -> one master Section around them.
+// session: { page, name, x, y, pages: [{ name, host, docW, docH }], sites: [{ host, layers, parts: [], sec }], master }
+var fsSessions = {}; // layers Section waiting for a manual Cmd+V -> its session
+// Give every pasted page frame in `container` to its website's own "Figma layers" Section.
+function fsDistribute(container, session) {
+  var bySite = {}; session.sites.forEach(function (s) { bySite[s.host] = s; });
+  var frames = container.children.slice(), owner = {}, used = {}, left = [];
+  session.pages.forEach(function (pg) {
+    for (var i = 0; i < frames.length; i++) if (!used[frames[i].id] && frames[i].name === pg.name) { used[frames[i].id] = 1; owner[frames[i].id] = pg.host; return; }
+    left.push(pg);
+  });
+  left.forEach(function (pg) {
+    var f = fgPickFrame(frames.filter(function (n) { return n.type === 'FRAME' && !/^Sticky placeholder/.test(n.name); }), used, pg);
+    if (f) { used[f.id] = 1; owner[f.id] = pg.host; }
+  });
+  // Extra frames Figma makes while pasting: they belong to the page created just before them.
+  var num = function (n) { return parseInt(String(n.id).split(':')[1], 10) || 0; };
+  var fallback = session.pages.length ? session.pages[0].host : session.sites[0].host;
+  frames.forEach(function (n) {
+    if (owner[n.id]) return;
+    var best = null;
+    frames.forEach(function (f) { if (used[f.id] && num(f) < num(n) && (!best || num(f) > num(best))) best = f; });
+    owner[n.id] = best ? owner[best.id] : fallback;
+  });
+  session.sites.forEach(function (site) {
+    var mine = frames.filter(function (n) { return owner[n.id] === site.host; });
+    if (!mine.length) return;
+    var sec = site.layers && !site.layers.removed ? site.layers : null;
+    if (!sec) { sec = figma.createSection(); session.page.appendChild(sec); sec.name = 'Figma layers — ' + site.host; site.layers = sec; }
+    mine.forEach(function (n) { sec.appendChild(n); });
+    fsRow(sec, 80, 80, 80);
+  });
+  if (!container.removed && !container.children.length) container.remove();
+}
+// Build (or refresh) the website Sections and the master Section. Safe to call again.
+function fsArrange(session) {
+  var live = [];
+  session.sites.forEach(function (site) {
+    var parts = (site.layers && !site.layers.removed ? [site.layers] : []).concat(site.parts.filter(function (n) { return !n.removed; }));
+    if (!parts.length) return;
+    if (!site.sec || site.sec.removed) { site.sec = figma.createSection(); session.page.appendChild(site.sec); site.sec.name = site.host; }
+    parts.forEach(function (n) { site.sec.appendChild(n); if (n.type === 'SECTION') fsTint(n, 2, session.page); }); // order: layers | screenshots | design system
+    fsTint(site.sec, 1, session.page);
+    fsRow(site.sec, 120, 160, 200);
+    live.push(site.sec);
+  });
+  if (!live.length) return null;
+  var root = live[0];
+  if (live.length > 1) {
+    if (!session.master || session.master.removed) { session.master = figma.createSection(); session.page.appendChild(session.master); }
+    session.master.name = session.name + ' (' + live.length + ' websites)';
+    root = session.master;
+    live.forEach(function (n) { root.appendChild(n); });
+    fsTint(root, 0, session.page);
+    fsRow(root, 200, 260, 300);
+  }
+  root.x = session.x; root.y = session.y;
+  return root;
+}
 async function fiGaptureLayers(msg) {
   var reply = function (o) { figma.ui.postMessage(Object.assign({ type: 'FIGAPTURE_LAYERS_RESULT', op: msg.type }, o)); };
   try {
@@ -8355,32 +8419,979 @@ async function fiGaptureLayers(msg) {
       // Layers inside the Section plus layers in new top-level nodes (where Figma puts the paste).
       var roots = sec.children.concat(fsNewTopLevel(sec)), n = 0;
       roots.forEach(function (r) { n += 1; try { if (r.findAll) n += r.findAll(function () { return true; }).length; } catch (e) {} });
-      reply({ ok: true, top: roots.length, count: n });
+      var got = {}; roots.forEach(function (r) { got[r.name] = (got[r.name] || 0) + 1; });
+      var pages = 0; (msg.names || []).forEach(function (nm) { if (got[nm]) { got[nm]--; pages++; } });
+      reply({ ok: true, top: roots.length, count: n, pages: pages });
       return;
     }
     if (msg.type === 'FIGAPTURE_LAYERS_FIT') {
-      // Move the pasted top-level frame(s) into the Section (FIT re-positions them below).
-      fsNewTopLevel(sec).forEach(function (n) { sec.appendChild(n); });
-      delete fsLayersBefore[sec.id];
-      if (!sec.children.length) { if (msg.removeIfEmpty) sec.remove(); reply({ ok: true, empty: true }); return; }
-      var minX = Infinity, minY2 = Infinity, maxX = -Infinity, maxY = -Infinity;
-      sec.children.forEach(function (c) { minX = Math.min(minX, c.x); minY2 = Math.min(minY2, c.y); maxX = Math.max(maxX, c.x + c.width); maxY = Math.max(maxY, c.y + c.height); });
-      // Pasted frames sit at (pad, pad) inside the Section; grow it to wrap them.
-      var pad = 80, dx = pad - minX, dy = pad - minY2;
-      sec.children.forEach(function (c) { c.x += dx; c.y += dy; });
-      sec.resizeWithoutConstraints(Math.max(400, maxX - minX + pad * 2), Math.max(300, maxY - minY2 + pad * 2));
-      sec.name = msg.name || sec.name;
-      reply({ ok: true, width: sec.width, height: sec.height, top: sec.children.length });
+      var fitted = fsFit(sec, msg.name, msg.removeIfEmpty);
+      reply(Object.assign({ ok: true }, fitted));
       return;
     }
+    if (msg.type === 'FIGAPTURE_LAYERS_FIX') { await fsFixLayers(sec, msg, reply); return; }
     reply({ ok: false, error: 'unknown step' });
   } catch (e) { reply({ ok: false, error: String(e && e.message || e) }); }
+}
+
+// ---- BEGIN fiGapture post-paste fixes (gradients, video first frame, box pinning) ----
+// Figma turns the captured page into layers on Cmd+V. These helpers then (1) put real gradient
+// fills on elements whose page background is a CSS gradient, (2) add the first frame of every
+// <video> (and the picture of every <canvas>) as an image, (3) move/resize layer boxes so they
+// match the page's real boxes. Layers are matched to page elements by position + size.
+function fgNum(v) { var n = parseFloat(v); return isNaN(n) ? 0 : n; }
+function fgClamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
+// Split "a, b(c, d), e" at top-level commas (or another separator char).
+function fgSplitTop(str, sep) {
+  var out = [], depth = 0, cur = '';
+  for (var i = 0; i < str.length; i++) {
+    var ch = str.charAt(i);
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    if (ch === sep && depth === 0) { out.push(cur.trim()); cur = ''; } else cur += ch;
+  }
+  if (cur.trim() !== '') out.push(cur.trim());
+  return out;
+}
+function fgLin2Srgb(c) { c = c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055; return fgClamp01(c); }
+function fgOklab(L, a, b, alpha) {
+  var l_ = L + 0.3963377774 * a + 0.2158037573 * b, m_ = L - 0.1055613458 * a - 0.0638541728 * b, s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+  var l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_;
+  return { r: fgLin2Srgb(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s), g: fgLin2Srgb(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s), b: fgLin2Srgb(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s), a: alpha };
+}
+var FG_NAMED = { white: [1, 1, 1], black: [0, 0, 0], red: [1, 0, 0], green: [0, 0.5019607843, 0], blue: [0, 0, 1], yellow: [1, 1, 0], gray: [0.5019607843, 0.5019607843, 0.5019607843], grey: [0.5019607843, 0.5019607843, 0.5019607843], orange: [1, 0.6470588235, 0], purple: [0.5019607843, 0, 0.5019607843], pink: [1, 0.7529411765, 0.7960784314], cyan: [0, 1, 1], magenta: [1, 0, 1] };
+// Any CSS colour Chrome can report in a computed style -> {r,g,b,a} (0..1), or null.
+function fgColor(str) {
+  if (!str) return null;
+  str = String(str).trim().toLowerCase();
+  if (str === 'transparent') return { r: 0, g: 0, b: 0, a: 0 };
+  if (FG_NAMED[str]) return { r: FG_NAMED[str][0], g: FG_NAMED[str][1], b: FG_NAMED[str][2], a: 1 };
+  var m = str.match(/^#([0-9a-f]{3,8})$/);
+  if (m) {
+    var h = m[1];
+    if (h.length === 3 || h.length === 4) h = h.split('').map(function (c) { return c + c; }).join('');
+    if (h.length !== 6 && h.length !== 8) return null;
+    return { r: parseInt(h.slice(0, 2), 16) / 255, g: parseInt(h.slice(2, 4), 16) / 255, b: parseInt(h.slice(4, 6), 16) / 255, a: h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1 };
+  }
+  m = str.match(/^([a-z0-9]+)\(\s*(.*)\)$/);
+  if (!m) return null;
+  var fn = m[1], body = m[2];
+  var alpha = 1, main = body;
+  var si = body.indexOf('/');
+  if (si >= 0) { var at = body.slice(si + 1).trim(); main = body.slice(0, si); alpha = at.indexOf('%') >= 0 ? parseFloat(at) / 100 : parseFloat(at); }
+  var parts = main.replace(/,/g, ' ').trim().split(/\s+/);
+  if ((fn === 'rgb' || fn === 'rgba') && parts.length >= 3) {
+    if (si < 0 && parts.length >= 4) { alpha = parts[3].indexOf('%') >= 0 ? parseFloat(parts[3]) / 100 : parseFloat(parts[3]); }
+    var ch = parts.slice(0, 3).map(function (p) { return p.indexOf('%') >= 0 ? parseFloat(p) / 100 : parseFloat(p) / 255; });
+    if (ch.some(isNaN)) return null;
+    return { r: fgClamp01(ch[0]), g: fgClamp01(ch[1]), b: fgClamp01(ch[2]), a: isNaN(alpha) ? 1 : fgClamp01(alpha) };
+  }
+  if ((fn === 'hsl' || fn === 'hsla') && parts.length >= 3) {
+    if (si < 0 && parts.length >= 4) { alpha = parts[3].indexOf('%') >= 0 ? parseFloat(parts[3]) / 100 : parseFloat(parts[3]); }
+    var hh = ((parseFloat(parts[0]) % 360) + 360) % 360, ss = parseFloat(parts[1]) / 100, ll = parseFloat(parts[2]) / 100;
+    var k = function (n) { return (n + hh / 30) % 12; }, aa = ss * Math.min(ll, 1 - ll);
+    var f = function (n) { return ll - aa * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1))); };
+    return { r: fgClamp01(f(0)), g: fgClamp01(f(8)), b: fgClamp01(f(4)), a: isNaN(alpha) ? 1 : fgClamp01(alpha) };
+  }
+  if (fn === 'color' && parts.length >= 4) {
+    var space = parts[0], v3 = parts.slice(1, 4).map(function (p) { return p.indexOf('%') >= 0 ? parseFloat(p) / 100 : parseFloat(p); });
+    if (v3.some(isNaN)) return null;
+    if (space === 'srgb' || space === 'display-p3') return { r: fgClamp01(v3[0]), g: fgClamp01(v3[1]), b: fgClamp01(v3[2]), a: isNaN(alpha) ? 1 : fgClamp01(alpha) }; // P3 shown as sRGB (close enough)
+    if (space === 'srgb-linear') return { r: fgLin2Srgb(v3[0]), g: fgLin2Srgb(v3[1]), b: fgLin2Srgb(v3[2]), a: isNaN(alpha) ? 1 : fgClamp01(alpha) };
+    return null;
+  }
+  if ((fn === 'oklab' || fn === 'oklch') && parts.length >= 3) {
+    var L = parts[0].indexOf('%') >= 0 ? parseFloat(parts[0]) / 100 : parseFloat(parts[0]);
+    var p1 = parseFloat(parts[1]), p2 = parseFloat(parts[2]);
+    if (isNaN(L) || isNaN(p1) || isNaN(p2)) return null;
+    if (fn === 'oklab') return fgOklab(L, p1, p2, isNaN(alpha) ? 1 : fgClamp01(alpha));
+    var rad = p2 * Math.PI / 180;
+    return fgOklab(L, p1 * Math.cos(rad), p1 * Math.sin(rad), isNaN(alpha) ? 1 : fgClamp01(alpha));
+  }
+  return null;
+}
+// "rgb(1, 2, 3) 20% 40%" -> { c, pos:[{v,u}] }. A lone length is a colour hint -> { hint:true }.
+function fgParseStop(arg) {
+  var m = arg.match(/^(rgba?\([^)]*\)|hsla?\([^)]*\)|color\([^)]*\)|oklab\([^)]*\)|oklch\([^)]*\)|lab\([^)]*\)|lch\([^)]*\)|#[0-9a-fA-F]{3,8}|[a-zA-Z]+)\s*(.*)$/);
+  if (!m) {
+    if (/^-?[\d.]+(%|px)?$/.test(arg)) return { hint: true };
+    return null;
+  }
+  var c = fgColor(m[1]);
+  if (!c) return null;
+  var pos = [];
+  var toks = m[2].trim() === '' ? [] : m[2].trim().split(/\s+/);
+  for (var i = 0; i < toks.length && pos.length < 2; i++) {
+    var t = toks[i].match(/^(-?[\d.]+)(%|px)?$/);
+    if (!t) return null;
+    pos.push({ v: parseFloat(t[1]), u: t[2] === '%' ? '%' : 'px' });
+  }
+  return { c: c, pos: pos };
+}
+// One background-image value -> layers, top (first) to bottom. Unknown pieces become { kind:'other' }.
+function fgParseBgImage(str) {
+  var out = [];
+  if (!str || str === 'none') return out;
+  fgSplitTop(str, ',').forEach(function (layer) {
+    var m = layer.match(/^(repeating-)?(linear|radial|conic)-gradient\((.*)\)$/);
+    if (!m) { out.push({ kind: /^url\(/.test(layer) ? 'url' : 'other' }); return; }
+    var kind = m[2], repeating = !!m[1];
+    var args = fgSplitTop(m[3], ',');
+    var cfg = null, first = args[0] || '';
+    var firstStop = fgParseStop(first);
+    if (!firstStop || firstStop.hint) { cfg = first; args = args.slice(1); }
+    var stops = [], bad = false;
+    args.forEach(function (a) { var s = fgParseStop(a); if (!s) bad = true; else if (!s.hint) stops.push(s); });
+    if (bad || stops.length < 2) { out.push({ kind: 'other' }); return; }
+    out.push({ kind: kind, repeating: repeating, cfg: cfg, stops: stops });
+  });
+  return out;
+}
+// Resolve stop positions to 0..1 along a line of length `len` (px); fix transparent colours; clip to 0..1.
+function fgResolveStops(stops, len) {
+  var arr = [];
+  stops.forEach(function (s) {
+    var ps = s.pos.length ? s.pos : [null];
+    ps.forEach(function (p) { arr.push({ c: { r: s.c.r, g: s.c.g, b: s.c.b, a: s.c.a }, p: p === null ? null : (p.u === '%' ? p.v / 100 : (len > 0 ? p.v / len : 0)) }); });
+  });
+  if (arr[0].p === null) arr[0].p = 0;
+  if (arr[arr.length - 1].p === null) arr[arr.length - 1].p = 1;
+  var i = 0;
+  while (i < arr.length) {
+    if (arr[i].p !== null) { i++; continue; }
+    var j = i; while (arr[j].p === null) j++;
+    var a = arr[i - 1].p, b = arr[j].p, n = j - i + 1;
+    for (var k = i; k < j; k++) arr[k].p = a + (b - a) * (k - i + 1) / n;
+    i = j;
+  }
+  var maxP = -Infinity;
+  arr.forEach(function (s) { if (s.p < maxP) s.p = maxP; maxP = s.p; });
+  // CSS blends in premultiplied colour; Figma does not: a fully transparent stop takes its neighbour's colour.
+  for (i = 0; i < arr.length; i++) {
+    if (arr[i].c.a > 0.001) continue;
+    var near = null;
+    for (var d = 1; d < arr.length && !near; d++) { if (arr[i + d] && arr[i + d].c.a > 0.001) near = arr[i + d]; else if (arr[i - d] && arr[i - d].c.a > 0.001) near = arr[i - d]; }
+    if (near) { arr[i].c.r = near.c.r; arr[i].c.g = near.c.g; arr[i].c.b = near.c.b; }
+  }
+  var colorAt = function (t) {
+    for (var q = 0; q < arr.length - 1; q++) {
+      if (t >= arr[q].p && t <= arr[q + 1].p) {
+        var span = arr[q + 1].p - arr[q].p, f = span <= 0 ? 1 : (t - arr[q].p) / span, A = arr[q].c, B = arr[q + 1].c;
+        return { r: A.r + (B.r - A.r) * f, g: A.g + (B.g - A.g) * f, b: A.b + (B.b - A.b) * f, a: A.a + (B.a - A.a) * f };
+      }
+    }
+    return t < arr[0].p ? arr[0].c : arr[arr.length - 1].c;
+  };
+  var res = [];
+  if (arr[0].p > 0) res.push({ position: 0, color: arr[0].c });
+  var lo = arr[0].p < 0, hi = arr[arr.length - 1].p > 1;
+  if (lo) res.push({ position: 0, color: colorAt(0) });
+  arr.forEach(function (s) { if (s.p >= 0 && s.p <= 1) res.push({ position: s.p, color: s.c }); });
+  if (hi) res.push({ position: 1, color: colorAt(1) });
+  if (arr[arr.length - 1].p < 1) res.push({ position: 1, color: arr[arr.length - 1].c });
+  // Figma wants at most 8+ stops without trouble, but keeps any number; guarantee ascending order.
+  res.sort(function (x, y) { return x.position - y.position; });
+  return res;
+}
+// Background tile box (px, relative to the element) from background-size / position / repeat (one layer).
+function fgTile(W, H, size, pos, rep) {
+  var tw = W, th = H;
+  var sz = (size || 'auto').trim();
+  if (sz !== 'auto' && sz !== 'cover' && sz !== 'contain') {
+    var t = sz.split(/\s+/);
+    var one = function (tok, full) { if (!tok || tok === 'auto') return full; return tok.indexOf('%') >= 0 ? full * parseFloat(tok) / 100 : fgNum(tok); };
+    tw = one(t[0], W); th = one(t[1] || 'auto', H);
+    if (!isFinite(tw)) tw = W;
+    if (!isFinite(th)) th = H;
+  }
+  var p = (pos || '0% 0%').trim().split(/\s+/);
+  var axis = function (tok, free) {
+    if (tok === 'left' || tok === 'top') return 0;
+    if (tok === 'right' || tok === 'bottom') return free;
+    if (tok === 'center' || tok === undefined) return free / 2;
+    return tok.indexOf('%') >= 0 ? free * parseFloat(tok) / 100 : fgNum(tok);
+  };
+  var tx = axis(p[0], W - tw), ty = axis(p[1], H - th);
+  // A tile smaller than the box that repeats cannot be one gradient paint.
+  var rp = (rep || 'repeat').trim().split(/\s+/), repX, repY;
+  if (rp[0] === 'repeat-x') { repX = true; repY = false; }
+  else if (rp[0] === 'repeat-y') { repX = false; repY = true; }
+  else { repX = rp[0] !== 'no-repeat'; repY = (rp[1] || rp[0]) !== 'no-repeat'; }
+  return { x: tx, y: ty, w: tw, h: th, tiled: (repX && tw < W - 0.5) || (repY && th < H - 0.5), part: tx > 0.5 || ty > 0.5 || tx + tw < W - 0.5 || ty + th < H - 0.5 };
+}
+// One parsed gradient layer + element size -> a Figma paint, or null when it can't be reproduced.
+function fgPaint(layer, W, H, tile) {
+  if (!layer || layer.repeating || layer.kind === 'conic' || layer.kind === 'other' || layer.kind === 'url') return null;
+  if (!(W > 0 && H > 0) || !tile || tile.tiled || tile.part || !(tile.w > 0 && tile.h > 0)) return null;
+  var tx = tile.x, ty = tile.y, tw = tile.w, th = tile.h, cx = tx + tw / 2, cy = ty + th / 2, cfg = (layer.cfg || '').toLowerCase().trim();
+  var t, stops;
+  if (layer.kind === 'linear') {
+    var dx = 0, dy = 1;
+    var am = cfg.match(/^(-?[\d.]+)(deg|rad|turn|grad)$/);
+    if (am) {
+      var deg = parseFloat(am[1]) * (am[2] === 'rad' ? 180 / Math.PI : am[2] === 'turn' ? 360 : am[2] === 'grad' ? 0.9 : 1), r = deg * Math.PI / 180;
+      dx = Math.sin(r); dy = -Math.cos(r);
+    } else if (/^to\s/.test(cfg)) {
+      var w = cfg.replace(/^to\s+/, '').split(/\s+/), hx = w.indexOf('right') >= 0 ? 1 : (w.indexOf('left') >= 0 ? -1 : 0), vy = w.indexOf('bottom') >= 0 ? 1 : (w.indexOf('top') >= 0 ? -1 : 0);
+      if (hx && vy) { // corner: the 50% line runs through the other two corners
+        var vx = th * hx, vyy = tw * vy, mag = Math.sqrt(vx * vx + vyy * vyy); dx = vx / mag; dy = vyy / mag;
+      } else { dx = hx; dy = vy; }
+    } else if (cfg) return null;
+    var L = Math.abs(tw * dx) + Math.abs(th * dy);
+    if (!(L > 0)) return null;
+    var nx = -dy, ny = dx, p0x = cx - dx * L / 2, p0y = cy - dy * L / 2;
+    t = [[W * dx / L, H * dy / L, -(p0x * dx + p0y * dy) / L], [W * nx / L, H * ny / L, 0.5 - (cx * nx + cy * ny) / L]];
+    stops = fgResolveStops(layer.stops, L);
+    return { type: 'GRADIENT_LINEAR', gradientTransform: t, gradientStops: stops, opacity: 1, visible: true, blendMode: 'NORMAL' };
+  }
+  // radial
+  var shape = /circle/.test(cfg) ? 'circle' : 'ellipse';
+  var cpx = cx, cpy = cy, atIdx = cfg.indexOf('at ');
+  var head = atIdx >= 0 ? cfg.slice(0, atIdx).trim() : cfg, tail = atIdx >= 0 ? cfg.slice(atIdx + 3).trim() : '';
+  if (tail) {
+    var pt = tail.split(/\s+/), ax = pt[0], ay = pt[1];
+    var coord = function (tok, off, size) { if (tok === 'left' || tok === 'top') return off; if (tok === 'right' || tok === 'bottom') return off + size; if (tok === 'center') return off + size / 2; return tok.indexOf('%') >= 0 ? off + size * parseFloat(tok) / 100 : off + fgNum(tok); };
+    if (pt.length === 1) {
+      if (ax === 'top' || ax === 'bottom') { cpy = coord(ax, ty, th); } else cpx = coord(ax, tx, tw);
+    } else {
+      // "top left" order is allowed in CSS: keywords decide the axis.
+      if (ax === 'top' || ax === 'bottom' || ay === 'left' || ay === 'right') { var sw = ax; ax = ay; ay = sw; }
+      cpx = coord(ax, tx, tw); cpy = coord(ay, ty, th);
+    }
+  }
+  var dl = cpx - tx, dr = tx + tw - cpx, dt = cpy - ty, db = ty + th - cpy;
+  var lens = head.replace(/circle|ellipse/g, '').trim(), rx, ry;
+  var kw = (lens.match(/closest-side|farthest-side|closest-corner|farthest-corner/) || ['farthest-corner'])[0];
+  var lt = lens.replace(kw, '').trim().split(/\s+/).filter(function (z) { return z !== ''; });
+  if (lt.length) {
+    var one2 = function (tok, full) { return tok.indexOf('%') >= 0 ? full * parseFloat(tok) / 100 : fgNum(tok); };
+    rx = one2(lt[0], tw); ry = lt.length > 1 ? one2(lt[1], th) : (shape === 'circle' ? rx : one2(lt[0], th));
+    if (shape === 'circle') ry = rx;
+  } else if (kw === 'closest-side') { rx = Math.min(dl, dr); ry = Math.min(dt, db); if (shape === 'circle') rx = ry = Math.min(rx, ry); }
+  else if (kw === 'farthest-side') { rx = Math.max(dl, dr); ry = Math.max(dt, db); if (shape === 'circle') rx = ry = Math.max(rx, ry); }
+  else if (kw === 'closest-corner') {
+    if (shape === 'circle') { rx = ry = Math.sqrt(Math.pow(Math.min(dl, dr), 2) + Math.pow(Math.min(dt, db), 2)); }
+    else { rx = Math.min(dl, dr) * Math.SQRT2; ry = Math.min(dt, db) * Math.SQRT2; }
+  } else {
+    if (shape === 'circle') { rx = ry = Math.sqrt(Math.pow(Math.max(dl, dr), 2) + Math.pow(Math.max(dt, db), 2)); }
+    else { rx = Math.max(dl, dr) * Math.SQRT2; ry = Math.max(dt, db) * Math.SQRT2; }
+  }
+  if (!(rx > 0.5)) rx = 0.5; if (!(ry > 0.5)) ry = 0.5;
+  t = [[W / (2 * rx), 0, 0.5 - cpx / (2 * rx)], [0, H / (2 * ry), 0.5 - cpy / (2 * ry)]];
+  stops = fgResolveStops(layer.stops, Math.max(rx, ry));
+  return { type: 'GRADIENT_RADIAL', gradientTransform: t, gradientStops: stops, opacity: 1, visible: true, blendMode: 'NORMAL' };
+}
+// All fills for an element: [solid background colour, then every layer bottom -> top]. Existing image fills
+// (a url() layer the paste already made) are kept at the position of the url() layer. null = nothing to change.
+function fgBuildFills(item, W, H, existing) {
+  var layers = fgParseBgImage(item.bi);
+  if (!layers.some(function (l) { return l.kind === 'linear' || l.kind === 'radial'; })) return null;
+  if (item.clip && /text/.test(item.clip)) return null; // gradient text: not a box fill
+  var sizes = fgSplitTop(item.size || 'auto', ','), poss = fgSplitTop(item.pos || '0% 0%', ','), reps = fgSplitTop(item.rep || 'repeat', ',');
+  var paints = [], madeAny = false;
+  var images = (existing || []).filter(function (f) { return f.type === 'IMAGE'; });
+  for (var i = layers.length - 1; i >= 0; i--) {
+    var l = layers[i];
+    if (l.kind === 'linear' || l.kind === 'radial') {
+      var tile = fgTile(W, H, sizes[i % sizes.length], poss[i % poss.length], reps[i % reps.length]);
+      var p = fgPaint(l, W, H, tile);
+      if (p) { paints.push(p); madeAny = true; }
+    } else if (l.kind === 'url') { images.forEach(function (im) { paints.push(im); }); images = []; }
+  }
+  if (!madeAny) return null;
+  var out = [];
+  var bg = fgColor(item.bg);
+  if (bg && bg.a > 0.001) out.push({ type: 'SOLID', color: { r: bg.r, g: bg.g, b: bg.b }, opacity: bg.a, visible: true, blendMode: 'NORMAL' });
+  return out.concat(paints).concat(images);
+}
+
+// ---- matching page boxes to pasted layers --------------------------------------------------
+// boxes: [x, y, w, h, parentIdx, flags, r, g, b, a]  flags: 1 = transformed (don't pin), 2 = has background colour, 8 = virtual (no page element, don't pin)
+function fgCollectNodes(root) {
+  var list = [], PASS = { FRAME: 1, RECTANGLE: 1, ELLIPSE: 1, INSTANCE: 1, COMPONENT: 1, GROUP: 1, VECTOR: 1, BOOLEAN_OPERATION: 1, STAR: 1, POLYGON: 1, LINE: 1 };
+  var rb = root.absoluteBoundingBox;
+  if (!rb) return { list: list, ox: 0, oy: 0 };
+  var order = 0;
+  var rec = function (n, depth) {
+    if (!PASS[n.type]) return;
+    var b = n.absoluteBoundingBox;
+    if (b && n.visible !== false) list.push({ n: n, x: b.x - rb.x, y: b.y - rb.y, w: b.width, h: b.height, depth: depth, ord: order++, type: n.type });
+    if ('children' in n && n.type !== 'INSTANCE') n.children.forEach(function (c) { rec(c, depth + 1); });
+  };
+  rec(root, 0);
+  return { list: list, ox: rb.x, oy: rb.y };
+}
+function fgFirstSolid(n) {
+  var f = n.fills;
+  if (!f || f === figma.mixed || !f.length) return null;
+  for (var i = f.length - 1; i >= 0; i--) if (f[i].type === 'SOLID' && f[i].visible !== false) return f[i];
+  return null;
+}
+// Greedy one-to-one matching, nearest first. Returns { pairs: {elementIdx: nodeRec}, } 
+function fgMatch(boxes, nodes) {
+  var CELL = 64, grid = {};
+  nodes.forEach(function (nd, i) {
+    if (nd.type === 'TEXT') return;
+    var key = Math.floor(nd.x / CELL) + ',' + Math.floor(nd.y / CELL);
+    (grid[key] = grid[key] || []).push(i);
+  });
+  // rank inside groups of (almost) identical boxes keeps nested wrappers in order
+  var rk = function (x, y, w, h) { return Math.round(x) + ',' + Math.round(y) + ',' + Math.round(w) + ',' + Math.round(h); };
+  var eRank = [], nRank = [], gE = {}, gN = {};
+  boxes.forEach(function (b, i) { var k = rk(b[0], b[1], b[2], b[3]); gE[k] = (gE[k] || 0); eRank[i] = gE[k]++; });
+  nodes.forEach(function (nd, i) { var k = rk(nd.x, nd.y, nd.w, nd.h); gN[k] = (gN[k] || 0); nRank[i] = gN[k]++; });
+  var cands = [];
+  for (var ei = 0; ei < boxes.length; ei++) {
+    var b = boxes[ei], cx0 = Math.floor((b[0] - CELL) / CELL), cx1 = Math.floor((b[0] + CELL) / CELL), cy0 = Math.floor((b[1] - CELL) / CELL), cy1 = Math.floor((b[1] + CELL) / CELL);
+    for (var gx = cx0; gx <= cx1; gx++) for (var gy = cy0; gy <= cy1; gy++) {
+      var cell = grid[gx + ',' + gy]; if (!cell) continue;
+      for (var k = 0; k < cell.length; k++) {
+        var nd = nodes[cell[k]];
+        var dx = Math.abs(nd.x - b[0]), dy = Math.abs(nd.y - b[1]), dw = Math.abs(nd.w - b[2]), dh = Math.abs(nd.h - b[3]);
+        if (dx > 40 || dy > 40 || dw > Math.max(24, 0.2 * b[2]) || dh > Math.max(40, 0.3 * b[3])) continue;
+        var sc = dx + dy + dw + dh + 0.02 * Math.abs(eRank[ei] - nRank[cell[k]]);
+        var sf = fgFirstSolid(nd.n), hasBg = (b[5] & 2) !== 0;
+        if (hasBg && sf) { var bc = Math.abs(sf.color.r - b[6]) + Math.abs(sf.color.g - b[7]) + Math.abs(sf.color.b - b[8]); sc += bc < 0.04 ? -1.5 : 1; }
+        else if (hasBg && !sf) sc += 1.5; else if (!hasBg && sf) sc += 1;
+        if (sc <= 96) cands.push([sc, ei, cell[k]]);
+      }
+    }
+  }
+  cands.sort(function (a, c) { return a[0] - c[0] || a[1] - c[1] || a[2] - c[2]; });
+  var usedE = {}, usedN = {}, pairs = {};
+  cands.forEach(function (c) {
+    if (usedE[c[1]] || usedN[c[2]]) return;
+    usedE[c[1]] = 1; usedN[c[2]] = 1; pairs[c[1]] = nodes[c[2]];
+  });
+  return pairs;
+}
+function fgAbs(n) { var b = n.absoluteBoundingBox; return b ? { x: b.x, y: b.y, w: b.width, h: b.height } : null; }
+// Move/resize matched boxes to the page's real boxes (top-down). Returns stats.
+function fgPin(boxes, pairs, ox, oy) {
+  var st = { matched: 0, adjusted: 0, maxBefore: 0, maxAfter: 0, sumBefore: 0, sumAfter: 0, skipped: 0 };
+  var skipSub = {}; // element idx whose subtree is transformed
+  // Moving one child of an auto layout frame moves all the others. So every frame on the way to a layer that
+  // must move loses its auto layout first (children keep their places); alPage adds auto layout back at the end.
+  var freeze = {};
+  Object.keys(pairs).forEach(function (k) {
+    var b0 = boxes[k], n0 = pairs[k].n, a0 = fgAbs(n0); if (!a0) return;
+    if (Math.max(Math.abs(a0.x - ox - b0[0]), Math.abs(a0.y - oy - b0[1]), Math.abs(a0.w - b0[2]), Math.abs(a0.h - b0[3])) <= 0.6) return;
+    for (var p0 = n0; p0 && p0.type !== 'SECTION' && p0.type !== 'PAGE'; p0 = p0.parent) { if (freeze[p0.id]) { if (p0 !== n0) break; } freeze[p0.id] = p0; }
+  });
+  Object.keys(freeze).forEach(function (k) { var f0 = freeze[k]; try { if (f0.layoutMode && f0.layoutMode !== 'NONE') f0.layoutMode = 'NONE'; } catch (e) { /* instance child */ } });
+  var idxs = Object.keys(pairs).map(Number).sort(function (a, b) { return pairs[a].ord - pairs[b].ord; });
+  idxs.forEach(function (ei) {
+    var b = boxes[ei], nd = pairs[ei], n = nd.n;
+    st.matched++;
+    var a = fgAbs(n); if (!a) return;
+    var before = Math.max(Math.abs(a.x - ox - b[0]), Math.abs(a.y - oy - b[1]), Math.abs(a.w - b[2]), Math.abs(a.h - b[3]));
+    st.maxBefore = Math.max(st.maxBefore, before); st.sumBefore += before;
+    var par = b[4]; var inTf = (b[5] & 1) !== 0 || (par >= 0 && skipSub[par]);
+    if (inTf) skipSub[ei] = 1;
+    var okType = n.type === 'FRAME' || n.type === 'RECTANGLE' || n.type === 'ELLIPSE' || n.type === 'INSTANCE' || n.type === 'COMPONENT';
+    if (inTf || !okType || (b[5] & 8) || n.rotation) { st.skipped++; st.sumAfter += before; st.maxAfter = Math.max(st.maxAfter, before); return; }
+    try {
+      if (Math.abs(a.w - b[2]) > 0.6 || Math.abs(a.h - b[3]) > 0.6) {
+        if ('layoutSizingHorizontal' in n) { try { if (n.layoutSizingHorizontal !== 'FIXED') n.layoutSizingHorizontal = 'FIXED'; if (n.layoutSizingVertical !== 'FIXED') n.layoutSizingVertical = 'FIXED'; } catch (e1) { /* not settable here */ } }
+        n.resize(Math.max(0.01, b[2]), Math.max(0.01, b[3]));
+      }
+      a = fgAbs(n);
+      var dx = ox + b[0] - a.x, dy = oy + b[1] - a.y;
+      if (Math.abs(dx) > 0.6 || Math.abs(dy) > 0.6) {
+        var p = n.parent;
+        if (p && 'layoutMode' in p && p.layoutMode !== 'NONE' && n.layoutPositioning !== 'ABSOLUTE') { n.layoutPositioning = 'ABSOLUTE'; a = fgAbs(n); dx = ox + b[0] - a.x; dy = oy + b[1] - a.y; }
+        n.x = n.x + dx; n.y = n.y + dy;
+      }
+      var a2 = fgAbs(n);
+      var after = Math.max(Math.abs(a2.x - ox - b[0]), Math.abs(a2.y - oy - b[1]), Math.abs(a2.w - b[2]), Math.abs(a2.h - b[3]));
+      if (after < before - 0.01) st.adjusted++;
+      st.maxAfter = Math.max(st.maxAfter, after); st.sumAfter += after;
+    } catch (e) { st.skipped++; st.sumAfter += before; st.maxAfter = Math.max(st.maxAfter, before); }
+  });
+  return st;
+}
+function fgSetRadii(node, r, W, H) {
+  var cap = Math.min(W, H) / 2, a = r || [];
+  var one = function (v) { v = String(v === undefined ? '0' : v); return Math.max(0, Math.min(cap, /%/.test(v) ? Math.min(W, H) * fgNum(v) / 100 : fgNum(v))); };
+  try { node.topLeftRadius = one(a[0]); node.topRightRadius = one(a[1]); node.bottomRightRadius = one(a[2]); node.bottomLeftRadius = one(a[3]); } catch (e) { /* this node has no corner radius */ }
+}
+// Insert an image layer (video first frame / canvas picture) for page box `b` (document coords).
+function fgImageLayer(name, bytes, b, radii, fit, match, rootNode, ox, oy) {
+  var img = figma.createImage(bytes);
+  var paint = { type: 'IMAGE', imageHash: img.hash, scaleMode: fit === 'contain' || fit === 'scale-down' ? 'FIT' : 'FILL' };
+  var n = match && match.n;
+  // The paste already made an empty layer for this element: use it.
+  if (n && (n.type === 'RECTANGLE' || (n.type === 'FRAME' && n.children.length === 0)) && !n.removed) {
+    n.fills = [paint]; n.name = name;
+    fgSetRadii(n, radii, n.width, n.height);
+    return n;
+  }
+  var host = n && 'children' in n ? n : (n && n.parent) || rootNode;
+  var rect = figma.createRectangle();
+  rect.name = name;
+  rect.resize(Math.max(0.01, b[2]), Math.max(0.01, b[3]));
+  rect.fills = [paint];
+  fgSetRadii(rect, radii, b[2], b[3]);
+  if (host === (n && n.parent) && n) host.insertChild(host.children.indexOf(n) + 1, rect); else host.insertChild(0, rect);
+  if ('layoutMode' in host && host.layoutMode !== 'NONE') { try { rect.layoutPositioning = 'ABSOLUTE'; } catch (e) { /* not an auto-layout child */ } }
+  var hb = host.absoluteBoundingBox;
+  if (hb) { rect.x = ox + b[0] - hb.x; rect.y = oy + b[1] - hb.y; }
+  return rect;
+}
+function fgNorm(s) { return String(s || '').replace(/[\s\u00a0\u200b]+/g, '').toLowerCase(); }
+// texts: [normalised text, x, y, w, h, align, lines] as drawn on the page. Pasted text layers are paired with
+// them by their words, in reading order, so the pairing does not depend on where Figma put them.
+function fgPairTexts(root, texts) {
+  var by = {}, out = [];
+  (texts || []).forEach(function (t) { (by[t[0]] = by[t[0]] || []).push(t); });
+  var nodes = root.findAllWithCriteria({ types: ['TEXT'] }), seen = {};
+  nodes.forEach(function (n) { var k = fgNorm(n.characters); if (k && by[k]) (seen[k] = seen[k] || []).push(n); });
+  Object.keys(seen).forEach(function (k) {
+    var ns = seen[k], ts = by[k];
+    var r = root.absoluteBoundingBox, used = {};
+    // The same words several times (menu and footer): pair them from top to bottom, not in layer order.
+    if (ns.length === ts.length) {
+      var pos = ns.map(function (n) { var a = fgAbs(n) || { x: 0, y: 0 }; return { n: n, x: a.x - r.x, y: a.y - r.y }; });
+      var cmp = function (p, q) { return Math.abs(p.y - q.y) > 8 ? p.y - q.y : p.x - q.x; };
+      pos.sort(cmp); var tt = ts.map(function (t) { return { t: t, x: t[1], y: t[2] }; }).sort(cmp);
+      pos.forEach(function (p, q) { out.push({ n: p.n, t: tt[q].t }); }); return;
+    }
+    ns.forEach(function (n) {
+      var a = fgAbs(n), best = -1, bd = 1200; if (!a) return;
+      ts.forEach(function (t, q) { if (used[q]) return; var d = Math.abs(a.x - r.x + a.w / 2 - t[1] - t[3] / 2) + Math.abs(a.y - r.y + a.h / 2 - t[2] - t[4] / 2); if (d < bd) { bd = d; best = q; } });
+      if (best >= 0) { used[best] = 1; out.push({ n: n, t: ts[best] }); }
+    });
+  });
+  return out;
+}
+function fgInter(style) {
+  var s = String(style || 'Regular'), it = /italic|oblique/i.test(s), w = 'Regular';
+  if (/thin|hairline/i.test(s)) w = 'Thin'; else if (/extra ?light|ultra ?light/i.test(s)) w = 'Extra Light'; else if (/light/i.test(s)) w = 'Light';
+  else if (/semi ?bold|demi/i.test(s)) w = 'Semi Bold'; else if (/extra ?bold|ultra ?bold/i.test(s)) w = 'Extra Bold'; else if (/bold/i.test(s)) w = 'Bold';
+  else if (/black|heavy/i.test(s)) w = 'Black'; else if (/medium/i.test(s)) w = 'Medium';
+  return it ? (w === 'Regular' ? 'Italic' : w + ' Italic') : w;
+}
+// Fonts this Figma does not have are measured with another font: lines get longer, wrap, and push everything
+// below them down. They become Inter (same weight), spaced so that each text is as wide as it is on the page.
+async function fgFonts(root, pairs) {
+  var st = { replaced: 0, fitted: 0, fonts: {} }, load = {}, sum = {}, todo = [];
+  var pt = {}; pairs.forEach(function (p) { pt[p.n.id] = p.t; });
+  var key = function (f) { return f.family + '|' + f.style; };
+  // 1) read every text once, then load each font once
+  root.findAllWithCriteria({ types: ['TEXT'] }).forEach(function (n) {
+    if (!n.characters.length) return;
+    var t = pt[n.id], missing = n.hasMissingFont;
+    if (!missing && !t) return;
+    var list; try { list = n.getStyledTextSegments(['fontName', 'fontSize', 'letterSpacing']); } catch (e) { return; }
+    list.forEach(function (q) { load[key(q.fontName)] = q.fontName; });
+    todo.push({ n: n, t: t, list: list, missing: missing });
+  });
+  var tryLoad = function (f) { return figma.loadFontAsync(f).then(function () { return true; }, function () { return false; }); };
+  var names = Object.keys(load), have = {}, sub = {};
+  var got = await Promise.all(names.map(function (k) { return tryLoad(load[k]); }));
+  names.forEach(function (k, q) { have[k] = got[q]; });
+  var lost = names.filter(function (k) { return !have[k]; });
+  await Promise.all(lost.map(function (k) {
+    var f = { family: 'Inter', style: fgInter(load[k].style) };
+    return tryLoad(f).then(function (ok) { sub[k] = ok ? f : { family: 'Inter', style: 'Regular' }; st.fonts[k] = sub[k].style; return ok || tryLoad(sub[k]); });
+  }));
+  // 2) work on detached copies: editing and measuring inside the page would lay the whole page out every time
+  var em = function (q) { return q.letterSpacing.unit === 'PERCENT' ? q.letterSpacing.value : 100 * q.letterSpacing.value / q.fontSize; };
+  var space = function (n, o, add) { o.list.forEach(function (q) { n.setRangeLetterSpacing(q.start, q.end, { unit: 'PERCENT', value: Math.round((em(q) + add) * 100) / 100 }); }); };
+  // A text that mixes fonts cannot be changed piece by piece while another piece is still missing:
+  // give the whole text one available font first, then every piece its own.
+  var refont = function (n, o) {
+    var first = null; o.list.forEach(function (q) { if (!first) first = sub[key(q.fontName)] || null; });
+    if (!first) return;
+    if (o.list.length > 1) n.fontName = first;
+    o.list.forEach(function (q) { n.setRangeFontName(q.start, q.end, sub[key(q.fontName)] || q.fontName); });
+  };
+  var lineH = function (t) { return t[4] / Math.max(1, t[6]); };
+  // Line breaks (<br>) that Figma's paste dropped: t[7] = how many visible characters come before each break.
+  var breaks = function (n, t) {
+    if (!t || !t[7] || !t[7].length) return;
+    t[7].slice().sort(function (a, b) { return b - a; }).forEach(function (want) {
+      var s = n.characters, seen = 0, i = 0;
+      while (i < s.length && seen < want) { if (!/[\s\u00a0\u200b]/.test(s.charAt(i))) seen++; i++; }
+      if (seen < want || i >= s.length) return;
+      var j = i; while (j < s.length && /[ \u00a0]/.test(s.charAt(j))) j++;
+      if (/[\n\u2028]/.test(s.charAt(j)) && t[7].filter(function (w) { return w === want; }).length < 2) return;
+      n.insertCharacters(i, '\n', i > 0 ? 'BEFORE' : 'AFTER');
+      if (j > i) n.deleteCharacters(i + 1, i + 1 + (j - i));
+    });
+  };
+  var box = figma.createFrame(); box.name = 'fiGapture measuring (temporary)'; box.x = -100000; box.y = -100000;
+  try {
+    todo.forEach(function (o) {
+      o.key = ''; o.list.forEach(function (q) { if (!o.key && sub[key(q.fontName)]) o.key = key(q.fontName); });
+      o.mode = o.n.textAutoResize; o.add = null;
+      var t = o.t; if (!t || t[6] !== 1 || o.n.characters.length < 2) return;
+      try {
+        var big = 0, m = o.n.clone(); box.appendChild(m); refont(m, o); if (m.textAutoResize !== 'WIDTH_AND_HEIGHT') m.textAutoResize = 'WIDTH_AND_HEIGHT';
+        o.list.forEach(function (q) { big += q.fontSize * (q.end - q.start); });
+        var d = t[3] - m.width, add = 100 * d / big; m.remove();
+        if (Math.abs(d) <= 0.75) o.add = 0; else if (add > -12 && add < 12) { o.add = add; st.fitted++; }
+        if (o.key && o.add !== null && o.n.characters.length > 5) (sum[o.key] = sum[o.key] || []).push(o.add);
+      } catch (e) { o.add = null; }
+    });
+    var med = function (a) { a = a.slice().sort(function (x, y) { return x - y; }); return a[Math.floor(a.length / 2)]; };
+    todo.forEach(function (o) {
+      if (o.add !== null) return;
+      var fam = o.key.split('|')[0], pool = o.key ? (sum[o.key] || [].concat.apply([], Object.keys(sum).filter(function (k) { return k.split('|')[0] === fam; }).map(function (k) { return sum[k]; }))) : [];
+      var base = pool.length ? med(pool) : 0, t = o.t; o.add = base;
+      if (!t || t[6] < 2 || o.mode !== 'HEIGHT') return;
+      try {
+        var m = o.n.clone(); box.appendChild(m); refont(m, o); if (base) space(m, o, base); breaks(m, t);
+        var tall = t[4] + 0.6 * lineH(t), low = t[4] - 0.6 * lineH(t), add = base, k;
+        for (k = 1; k <= 8 && m.height > tall; k++) { add = base - k * 0.5; space(m, o, add); }
+        for (k = 1; k <= 6 && add === base && m.height < low; k++) { space(m, o, base + k * 0.5); if (m.height >= low) add = base + k * 0.5; }
+        if (m.height <= tall) { if (add !== base) st.fitted++; o.add = add; }
+        m.remove();
+      } catch (e) { /* keep the base value */ }
+    });
+  } finally { box.remove(); }
+  // 3) apply to the page (no measuring in between)
+  todo.forEach(function (o) {
+    try {
+      if (o.key) { o.n.setPluginData('fgFont', JSON.stringify(o.list.map(function (q) { return q.fontName; }))); refont(o.n, o); st.replaced++; }
+      if (o.add && Math.abs(o.add) > 0.01) space(o.n, o, o.add);
+      if (o.t && o.t[7] && o.t[7].length && !o.list.some(function (q) { return !have[key(q.fontName)] && !sub[key(q.fontName)]; })) breaks(o.n, o.t);
+    } catch (e) { /* not editable */ }
+  });
+  return st;
+}
+function fgDrift(p) {
+  var a = fgAbs(p.n), t = p.t; if (!a) return null;
+  var tall = a.h > t[4] + 0.6 * (t[4] / Math.max(1, t[6]));
+  return { x: t[5] === 'center' ? a.x + a.w / 2 - t[1] - t[3] / 2 : (t[5] === 'right' || t[5] === 'end' ? a.x + a.w - t[1] - t[3] : a.x - t[1]), y: tall ? a.y - t[2] : a.y + a.h / 2 - t[2] - t[4] / 2 };
+}
+async function fgTexts(root, pairs, ox, oy) {
+  var st = { matched: pairs.length, moved: 0, unclipped: 0 };
+  pairs.forEach(function (p) {
+    var n = p.n; if (n.removed || Math.abs(n.rotation || 0) > 0.01) return;
+    var d = fgDrift(p); if (!d) return;
+    var dx = ox - d.x, dy = oy - d.y;
+    if (Math.abs(dy) < 2) dy = 0; if (Math.abs(dx) < 3) dx = 0;
+    // Far away and its frame was not placed either: moving only the words would tear the block apart.
+    if ((!dx && !dy) || Math.abs(dx) > 160 || Math.abs(dy) > 60) return;
+    for (var q = n.parent; q && q.type !== 'SECTION' && q.type !== 'PAGE' && q.layoutMode && q.layoutMode !== 'NONE'; q = q.parent) { try { q.layoutMode = 'NONE'; } catch (e) { break; } }
+    try { n.x += dx; n.y += dy; st.moved++; } catch (e) { /* inside an instance */ }
+  });
+  // A frame that only holds text must not cut its last letter.
+  root.findAllWithCriteria({ types: ['FRAME'] }).forEach(function (f) {
+    if (!f.clipsContent || !f.children.length) return;
+    if (!f.children.every(function (c) { return c.type === 'TEXT'; })) return;
+    var over = f.children.some(function (c) { return (c.x + c.width > f.width + 0.2 && c.x + c.width < f.width * 1.3) || (c.y + c.height > f.height + 0.2 && c.y + c.height < f.height + 24); });
+    if (over) { f.clipsContent = false; st.unclipped++; }
+  });
+  return st;
+}
+// Offset between the page's origin and the pasted frame's origin: vote with the biggest boxes.
+function fgOffset(boxes, nodes) {
+  var big = [];
+  boxes.forEach(function (b, i) { if (b[2] * b[3] >= 6000 && !(b[5] & 8)) big.push(i); });
+  big.sort(function (p, q) { return boxes[q][2] * boxes[q][3] - boxes[p][2] * boxes[p][3]; });
+  big = big.slice(0, 40);
+  var votes = {}, best = null;
+  big.forEach(function (i) {
+    var b = boxes[i];
+    nodes.forEach(function (nd) {
+      if (Math.abs(nd.w - b[2]) > 1.5 || Math.abs(nd.h - b[3]) > 1.5) return;
+      var dx = Math.round(nd.x - b[0]), dy = Math.round(nd.y - b[1]);
+      if (Math.abs(dx) > 400 || Math.abs(dy) > 400) return;
+      var k = dx + ',' + dy; votes[k] = (votes[k] || 0) + 1;
+      if (!best || votes[k] > votes[best]) best = k;
+    });
+  });
+  if (!best || votes[best] < 3) return { dx: 0, dy: 0, votes: 0 };
+  var p = best.split(',');
+  return { dx: +p[0], dy: +p[1], votes: votes[best] };
+}
+// Which top-level pasted frame belongs to this capture? By name, else by size, else by order.
+function fgPickFrame(frames, used, pg, order) {
+  var i, best = null, bestD = Infinity;
+  for (i = 0; i < frames.length; i++) if (!used[frames[i].id] && frames[i].name === pg.name) return frames[i];
+  for (i = 0; i < frames.length; i++) {
+    if (used[frames[i].id]) continue;
+    var d = Math.abs(frames[i].width - pg.docW) + Math.abs(frames[i].height - pg.docH);
+    if (d < bestD) { bestD = d; best = frames[i]; }
+  }
+  if (best && bestD <= Math.max(60, 0.05 * (pg.docW + pg.docH))) return best;
+  for (i = 0; i < frames.length; i++) if (!used[frames[i].id]) return frames[i];
+  return null;
+}
+// Apply gradients / video frames / canvas pictures / box pinning to one pasted page frame.
+async function fgFixPage(frame, pg, opt) {
+  var res = { name: pg.name, boxes: pg.boxes.length, nodes: 0, matched: 0, gradients: 0, gradientsMissed: 0, gradientsSkipped: 0, videos: 0, canvases: 0, pin: null, offset: null };
+  var pairsT = fgPairTexts(frame, pg.texts);
+  res.fonts = await fgFonts(frame, pairsT);
+  var col = fgCollectNodes(frame);
+  res.nodes = col.list.length;
+  var off = fgOffset(pg.boxes, col.list);
+  res.offset = off;
+  // Pasted frame origin <-> page origin: shift node coordinates by the voted offset.
+  col.list.forEach(function (nd) { nd.x -= off.dx; nd.y -= off.dy; });
+  // Match layers where they would be without Figma's drift (a block below a taller text sits lower than on the page).
+  var dBy = {}; pairsT.forEach(function (p) { var d = fgDrift(p); if (d) dBy[p.n.id] = { x: d.x - col.ox - off.dx, y: d.y - col.oy - off.dy }; });
+  var dNode = {}, dFirst = function (n) { if (dBy[n.id]) return dBy[n.id]; if (!('children' in n)) return null; for (var q = 0; q < n.children.length; q++) { var r = dNode[n.children[q].id] = dFirst(n.children[q]); if (r) { for (q = q + 1; q < n.children.length; q++) dNode[n.children[q].id] = dFirst(n.children[q]); return r; } } return null; };
+  dNode[frame.id] = { x: 0, y: 0 }; dFirst(frame);
+  col.list.forEach(function (nd) { var d = null; for (var q = nd.n; q && !d; q = q.id === frame.id ? null : q.parent) d = dNode[q.id] || null; if (d && Math.abs(d.x) < 400 && Math.abs(d.y) < 2500) { nd.x -= d.x; nd.y -= d.y; } });
+  var pairs = fgMatch(pg.boxes, col.list);
+  res.matched = Object.keys(pairs).length;
+  var enough = pg.boxes.length > 0 && res.matched >= Math.min(20, pg.boxes.length * 0.3);
+  if (opt.pin !== false && enough) {
+    res.pin = fgPin(pg.boxes, pairs, col.ox + off.dx, col.oy + off.dy);
+    res.texts = await fgTexts(frame, pairsT, col.ox + off.dx, col.oy + off.dy);
+  }
+  // The page is a window onto its content: it has the page's size and shows nothing outside it (carousels).
+  if (pg.docW > 300 && pg.docH > 100) {
+    try { if (Math.abs(frame.width - pg.docW) > 0.5 || Math.abs(frame.height - pg.docH) > 0.5) { if (frame.layoutMode !== 'NONE') frame.layoutMode = 'NONE'; frame.resize(pg.docW, pg.docH); } } catch (e) { /* keep */ }
+  }
+  frame.clipsContent = true;
+  var ox = col.ox + off.dx, oy = col.oy + off.dy;
+  if (opt.gradients !== false) {
+    (pg.grads || []).forEach(function (g) {
+      var m = pairs[g.bx];
+      if (!m || m.removed || !('fills' in m.n)) { res.gradientsMissed++; return; }
+      var n = m.n, cur = n.fills === figma.mixed ? [] : n.fills.slice();
+      var fills = fgBuildFills(g, n.width, n.height, cur);
+      if (!fills) { res.gradientsSkipped++; return; }
+      try { n.fills = fills; res.gradients++; } catch (e) { res.gradientsMissed++; }
+    });
+  }
+  var items = (opt.video !== false ? (pg.videos || []) : []).map(function (v) { return { v: v, name: 'Video (first frame)', key: 'videos' }; })
+    .concat((pg.canvases || []).map(function (v) { return { v: v, name: 'Canvas (picture)', key: 'canvases' }; }));
+  items.forEach(function (it) {
+    try {
+      var b = pg.boxes[it.v.bx];
+      fgImageLayer(it.name, it.v.bytes, b, it.v.r, it.v.fit, pairs[it.v.bx], frame, ox, oy);
+      res[it.key]++;
+    } catch (e) { res.error = String(e && e.message || e); }
+  });
+  return res;
+}
+
+// ---- END fiGapture post-paste fixes ----
+// ---- BEGIN fiGapture auto layout (every pasted frame gets auto layout, every layer keeps its place) ----
+// For a frame without auto layout (or with layers pinned outside the flow) the children's boxes are cut into
+// rows and columns; gaps become spacing / padding, and a Row / Column frame is added where one axis is not
+// enough. Children that overlap others (backgrounds, badges) become "absolute position" layers inside the
+// auto layout parent, which is how Figma stores CSS absolute positioning. Every step is measured and undone
+// when a layer would move.
+var AL_TOL = 0.5;
+var AL_DRAW = { VECTOR: 1, GROUP: 1, BOOLEAN_OPERATION: 1, LINE: 1, STAR: 1, POLYGON: 1, ELLIPSE: 1 };
+function alIsAuto(n) { return n.layoutMode === 'HORIZONTAL' || n.layoutMode === 'VERTICAL'; }
+function alText(n) { return n.type === 'TEXT' ? 1 : ('findAllWithCriteria' in n ? n.findAllWithCriteria({ types: ['TEXT'] }).length : 0); }
+// Target place of every node inside its parent frame: raw (x, y, w, h) and the box it covers (differs when rotated).
+function alTarget(n) {
+  var t = n.relativeTransform, w = n.width, h = n.height, r = { x: n.x, y: n.y, w: w, h: h, bx: n.x, by: n.y, bw: w, bh: h, rot: Math.abs(n.rotation || 0) > 0.01 };
+  if (r.rot && t) {
+    var xs = [0, t[0][0] * w, t[0][1] * h, t[0][0] * w + t[0][1] * h], ys = [0, t[1][0] * w, t[1][1] * h, t[1][0] * w + t[1][1] * h];
+    r.bx = n.x + Math.min.apply(null, xs); r.by = n.y + Math.min.apply(null, ys);
+    r.bw = Math.max.apply(null, xs) - Math.min.apply(null, xs); r.bh = Math.max.apply(null, ys) - Math.min.apply(null, ys);
+  }
+  return r;
+}
+function alPaints(n) { var on = function (a) { return a === figma.mixed || (a || []).some(function (p) { return p.visible !== false; }); }; return on(n.fills) || on(n.strokes) || on(n.effects); }
+// An invisible wrapper smaller than its content (Figma collapses it when a child leaves the flow) is grown around it.
+function alGrow(f, T) {
+  var tf = T[f.id]; if (!tf || tf.rot || f.clipsContent || alPaints(f) || f.parent.type !== 'FRAME' || !T[f.parent.id]) return;
+  var l = 0, t = 0, r = tf.w, b = tf.h, kids = f.children.filter(function (c) { return c.visible && T[c.id]; });
+  kids.forEach(function (c) { var k = T[c.id]; l = Math.min(l, k.bx); t = Math.min(t, k.by); r = Math.max(r, k.bx + k.bw); b = Math.max(b, k.by + k.bh); });
+  // Sideways only a little: carousels and marquees are meant to run out of their frame.
+  if (l < -80) l = 0; if (r > tf.w + 80) r = tf.w;
+  if (l > -0.02 && t > -0.02 && r < tf.w + 0.02 && b < tf.h + 0.02) return;
+  kids = f.children.filter(function (c) { return T[c.id]; });
+  kids.forEach(function (c) { var k = T[c.id]; k.x -= l; k.y -= t; k.bx -= l; k.by -= t; });
+  tf.x += l; tf.y += t; tf.bx += l; tf.by += t; tf.w = tf.bw = r - l; tf.h = tf.bh = b - t; tf.grown = true;
+  ['minWidth', 'maxWidth', 'minHeight', 'maxHeight'].forEach(function (k) { try { if (f[k] !== null) f[k] = null; } catch (e) { /* not available here */ } });
+}
+function alHit(a, b) { return Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > AL_TOL && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > AL_TOL; }
+// Split items along one axis wherever a clean gap exists.
+function alCut(items, p, s, loose) {
+  var arr = items.slice().sort(function (a, b) { return a[p] - b[p] || a[p] + a[s] - b[p] - b[s] || a.i - b.i; }), out = [], end = -Infinity, prev = 0;
+  arr.forEach(function (it) {
+    if (out.length && it[p] < end - (loose ? Math.min(6, it[s] / 4, prev / 4) : AL_TOL)) out[out.length - 1].push(it); else out.push([it]);
+    prev = it[s];
+    end = Math.max(end, it[p] + it[s]);
+  });
+  return out;
+}
+function alBounds(items) {
+  var x = Infinity, y = Infinity, r = -Infinity, b = -Infinity;
+  items.forEach(function (i) { x = Math.min(x, i.x); y = Math.min(y, i.y); r = Math.max(r, i.x + i.w); b = Math.max(b, i.y + i.h); });
+  return { x: x, y: y, w: r - x, h: b - y };
+}
+// items -> tree { dir, kids, x, y, w, h }; whatever cannot flow is pushed to `abs`.
+function alPlan(items, abs) {
+  items = items.slice();
+  for (;;) {
+    if (items.length === 1) return items[0];
+    var v = alCut(items, 'y', 'h'), h = alCut(items, 'x', 'w');
+    if (v.length < 2 && h.length < 2) { v = alCut(items, 'y', 'h', true); h = alCut(items, 'x', 'w', true); }
+    if (v.length > 1 || h.length > 1) {
+      var useV = v.length >= h.length, kids = (useV ? v : h).map(function (g) { return alPlan(g, abs); });
+      return Object.assign({ dir: useV ? 'VERTICAL' : 'HORIZONTAL', kids: kids }, alBounds(kids));
+    }
+    var worst = null;
+    items.forEach(function (a) {
+      var hits = 0; items.forEach(function (b) { if (a !== b && alHit(a, b)) hits++; });
+      if (a.t === undefined) a.t = alText(a.n);
+      var bad = { it: a, hits: hits, t: a.t, area: a.w * a.h };
+      // The layer with the least text leaves the flow (backgrounds, badges, floating buttons).
+      if (hits && (!worst || bad.t < worst.t || (bad.t === worst.t && (bad.hits > worst.hits || (bad.hits === worst.hits && bad.area < worst.area))))) worst = bad;
+    });
+    if (!worst) worst = { it: items[items.length - 1] };
+    abs.push(worst.it); items.splice(items.indexOf(worst.it), 1);
+  }
+}
+function alNewFrame(name, dir) {
+  var f = figma.createFrame();
+  f.name = name; f.fills = []; f.clipsContent = false; f.layoutMode = dir; f.itemSpacing = 0;
+  f.paddingLeft = f.paddingRight = f.paddingTop = f.paddingBottom = 0;
+  f.primaryAxisSizingMode = 'AUTO'; f.counterAxisSizingMode = 'AUTO';
+  return f;
+}
+// Fill auto layout frame `f` (content box bx,by,bw,bh in the coordinates of the items) with plan `pl`.
+function alFill(f, pl, bx, by, bw, bh, st) {
+  var V = pl.dir === 'VERTICAL', p = V ? 'y' : 'x', s = V ? 'h' : 'w', cp = V ? 'x' : 'y', cs = V ? 'w' : 'h';
+  var kids = pl.kids, b0 = V ? by : bx, bS = V ? bh : bw, c0 = V ? bx : by, cS = V ? bw : bh, pos = function (v) { return Math.max(0, v); };
+  var gaps = []; for (var i = 1; i < kids.length; i++) gaps.push(kids[i][p] - kids[i - 1][p] - kids[i - 1][s]);
+  var gap = gaps.length ? Math.min.apply(null, gaps) : 0; if (gap < 0) gap = gap < -AL_TOL ? gap : 0;
+  var same = function (fn) { var v = kids.map(fn); return Math.max.apply(null, v) - Math.min.apply(null, v) <= 0.1; };
+  var minC = Math.min.apply(null, kids.map(function (k) { return k[cp]; })), maxE = Math.max.apply(null, kids.map(function (k) { return k[cp] + k[cs]; }));
+  var align = 'MIN', free = false;
+  if (same(function (k) { return k[cp]; })) { align = 'MIN'; free = true; }
+  else if (same(function (k) { return k[cp] + k[cs] / 2; })) { align = 'CENTER'; free = true; }
+  else if (same(function (k) { return k[cp] + k[cs]; })) { align = 'MAX'; free = true; }
+  f.itemSpacing = gap;
+  var ps = pos(kids[0][p] - b0), pe = pos(b0 + bS - kids[kids.length - 1][p] - kids[kids.length - 1][s]), cps = pos(minC - c0), cpe = pos(c0 + cS - maxE);
+  if (V) { f.paddingTop = ps; f.paddingBottom = pe; f.paddingLeft = cps; f.paddingRight = cpe; } else { f.paddingLeft = ps; f.paddingRight = pe; f.paddingTop = cps; f.paddingBottom = cpe; }
+  f.primaryAxisAlignItems = 'MIN'; f.counterAxisAlignItems = align;
+  // Content that starts outside the frame: centre it, with padding on one side to shift the centre.
+  if (kids.length === 1) {
+    var k0 = kids[0], skew = function (st0, size, full, a, b) { var d = 2 * st0 + size - full; f[a] = Math.max(0, d); f[b] = Math.max(0, -d); };
+    if (k0[p] - b0 < -0.01) { f.primaryAxisAlignItems = 'CENTER'; skew(k0[p] - b0, k0[s], bS, V ? 'paddingTop' : 'paddingLeft', V ? 'paddingBottom' : 'paddingRight'); }
+    if (k0[cp] - c0 < -0.01) { f.counterAxisAlignItems = 'CENTER'; skew(k0[cp] - c0, k0[cs], cS, V ? 'paddingLeft' : 'paddingTop', V ? 'paddingRight' : 'paddingBottom'); }
+  }
+  kids.forEach(function (k, i) {
+    var extra = i ? gaps[i - 1] - gap : 0, off = free ? 0 : k[cp] - minC;
+    if (extra < 0.1) extra = 0; if (off < 0.1) off = 0;
+    var host = f, node = k.n;
+    if (k.kids) { // a nested row / column
+      node = alNewFrame(k.dir === 'VERTICAL' ? 'Column' : 'Row', k.dir); st.wrappers.push(node);
+      f.appendChild(node);
+      alFill(node, k, k.x, k.y, k.w, k.h, st);
+      // Its own padding carries the extra gap / offset.
+      if (extra) { if (V) node.paddingTop += extra; else node.paddingLeft += extra; }
+      if (off) { if (V) node.paddingLeft += off; else node.paddingTop += off; }
+      return;
+    }
+    if (extra || off) {
+      host = alNewFrame(k.n.name + ' spacing', V ? 'VERTICAL' : 'HORIZONTAL'); st.wrappers.push(host); f.appendChild(host);
+      if (V) { host.paddingTop = extra; host.paddingLeft = off; } else { host.paddingLeft = extra; host.paddingTop = off; }
+    }
+    host.appendChild(node);
+    if ('layoutPositioning' in node && node.layoutPositioning !== 'AUTO') node.layoutPositioning = 'AUTO';
+  });
+}
+function alFreeze(n) {
+  try { if (n.layoutSizingHorizontal === 'FILL') n.layoutSizingHorizontal = 'FIXED'; } catch (e) { /* not in auto layout */ }
+  try { if (n.layoutSizingVertical === 'FILL') n.layoutSizingVertical = 'FIXED'; } catch (e) { /* not in auto layout */ }
+}
+// Position of node `n` inside frame `f`, through any wrapper frames.
+function alRel(n, f) { var x = n.x, y = n.y, p = n.parent; while (p && p.id !== f.id) { x += p.x; y += p.y; p = p.parent; } return { x: x, y: y, w: n.width, h: n.height }; }
+function alOff(a, b) { return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y), Math.abs(a.w - b.w), Math.abs(a.h - b.h)); }
+function alSetMode(f, dir, W, H) {
+  alFreeze(f);
+  if (f.layoutMode !== 'NONE' && f.layoutMode !== dir) f.layoutMode = 'NONE';
+  f.layoutMode = dir;
+  if (f.layoutWrap === 'WRAP') f.layoutWrap = 'NO_WRAP';
+  f.primaryAxisSizingMode = 'FIXED'; f.counterAxisSizingMode = 'FIXED';
+  try { f.strokesIncludedInLayout = false; } catch (e) { /* older API */ }
+  try { f.itemReverseZIndex = false; } catch (e) { /* older API */ }
+  if (Math.abs(f.width - W) > 0.01 || Math.abs(f.height - H) > 0.01) f.resize(Math.max(0.01, W), Math.max(0.01, H));
+}
+// Convert one frame. Returns 'flow' | 'absolute' | 'skip'.
+function alConvert(f, st, T) {
+  var all = f.children.slice(), tf = T[f.id];
+  if (!all.length || all.some(function (c) { return c.isMask; })) return 'skip';
+  if (all.length > 1 && all.every(function (c) { return AL_DRAW[c.type] && !alText(c); })) { st.drawings++; return 'skip'; } // an icon / illustration
+  var W = tf ? tf.w : f.width, H = tf ? tf.h : f.height;
+  var inPlace = function () {
+    var w = Math.max(Math.abs(f.width - W), Math.abs(f.height - H));
+    all.forEach(function (c) { if (c.visible && T[c.id]) w = Math.max(w, alOff(alRel(c, f), T[c.id])); });
+    return w;
+  };
+  if (f.layoutMode !== 'NONE' && !all.some(function (c) { return c.visible && c.layoutPositioning === 'ABSOLUTE'; }) && inPlace() <= 0.05) return 'skip';
+  var sizing = null; try { sizing = [f.layoutSizingHorizontal, f.layoutSizingVertical]; } catch (e) { sizing = null; }
+  var keep = st.wrappers, worst = 0;
+  var placeAbs = function (c) { var b = T[c.id]; if (!b) return; if ('layoutPositioning' in c) c.layoutPositioning = 'ABSOLUTE'; if (Math.abs(c.width - b.w) > 0.01 || Math.abs(c.height - b.h) > 0.01) { try { c.resize(Math.max(0.01, b.w), Math.max(0.01, b.h)); } catch (e) { /* not resizable */ } } c.x = b.x; c.y = b.y; };
+  // Try 0: everything that can flows. Try 1: rotated layers and layers outside the frame leave the flow.
+  // Try 2: auto layout frame with absolutely positioned children only (always exact).
+  for (var tr = 0; tr < 3; tr++) {
+    st.wrappers = [];
+    var items = [], abs = [], plan = null, isAbs = {};
+    all.forEach(function (c, i) {
+      var t = T[c.id]; if (!c.visible || !t) return;
+      var b = { n: c, i: i, x: t.bx, y: t.by, w: t.bw, h: t.bh };
+      var out = tr === 2 || !('layoutPositioning' in c) || (tr === 1 && (t.rot || b.x < -0.01 || b.y < -0.01 || b.x > W || b.y > H));
+      (out ? abs : items).push(b);
+    });
+    try {
+      if (items.length) {
+        plan = alPlan(items, abs);
+        if (!plan.kids || (plan.kids.length > 1 && (plan.x < -0.01 || plan.y < -0.01))) plan = Object.assign({ dir: 'VERTICAL' }, alBounds([plan]), { kids: [plan] });
+      }
+      abs.forEach(function (b) { isAbs[b.n.id] = b; });
+      all.forEach(alFreeze);
+      alSetMode(f, plan ? plan.dir : 'VERTICAL', W, H);
+      if (!plan) { f.paddingLeft = f.paddingRight = f.paddingTop = f.paddingBottom = 0; f.itemSpacing = 0; f.primaryAxisAlignItems = 'MIN'; f.counterAxisAlignItems = 'MIN'; }
+      else {
+        alFill(f, plan, 0, 0, W, H, st);
+        // Layers order: absolute layers stay below / above the flowing ones they overlap.
+        var flow = f.children.filter(function (c) { return !isAbs[c.id]; }), low = [], high = [];
+        abs.slice().sort(function (a, b) { return a.i - b.i; }).forEach(function (a) {
+          var over = items.filter(function (t) { return !isAbs[t.n.id] && alHit(a, t); });
+          var under = over.length ? over.filter(function (t) { return t.i > a.i; }).length >= over.length / 2 : a.i === 0;
+          (under ? low : high).push(a.n);
+        });
+        low.concat(flow, high).forEach(function (c) { f.appendChild(c); });
+      }
+      abs.forEach(function (b) {
+        placeAbs(b.n);
+        // A background the size of its parent keeps covering it when the parent grows.
+        if ('constraints' in b.n && !T[b.n.id].rot) { try { if (b.y <= 0.5 && b.y + b.h >= H - 0.5 && alIsAuto(b.n) && b.n.layoutSizingVertical === 'HUG') { b.n.layoutSizingVertical = 'FIXED'; b.n.resize(b.w, b.h); } b.n.constraints = { horizontal: b.x <= 0.5 && b.x + b.w >= W - 0.5 ? 'STRETCH' : b.n.constraints.horizontal, vertical: b.y <= 0.5 && b.y + b.h >= H - 0.5 ? 'STRETCH' : b.n.constraints.vertical }; } catch (e) { /* no constraints here */ } }
+      });
+      // Sizes first (a grown wrapper, a text box), then measure.
+      items.forEach(function (b) { if (isAbs[b.n.id]) return; var t = T[b.n.id]; if (Math.abs(b.n.width - t.w) > 0.01 || Math.abs(b.n.height - t.h) > 0.01) { try { b.n.resize(Math.max(0.01, t.w), Math.max(0.01, t.h)); } catch (e) { /* not resizable */ } } });
+      worst = inPlace();
+    } catch (e) { worst = 1e9; st.errors.push(f.name + ': ' + String(e && e.message || e)); }
+    if (worst <= AL_TOL) {
+      st.wrappers = keep.concat(st.wrappers); st.newAbs += abs.length;
+      alKeepFill(f, sizing, W, H);
+      return plan ? 'flow' : 'absolute';
+    }
+    if (st.trace && st.trace.length < 400) st.trace.push({ try: tr, f: f.name, worst: Math.round(worst * 10) / 10, W: W, H: H, dir: f.layoutMode, al: [f.primaryAxisAlignItems, f.counterAxisAlignItems], kids: all.slice(0, 5).map(function (c) { var r = c.removed ? null : alRel(c, f); return [c.name.slice(0, 20), c.type, T[c.id], r]; }) });
+    // Undo: children back in order, helper frames gone.
+    all.forEach(function (c) { f.appendChild(c); });
+    st.wrappers.forEach(function (w) { if (!w.removed) w.remove(); });
+    st.wrappers = keep;
+    if (tr === 2) { st.fallbacks.push([f.name, Math.round(worst * 10) / 10]); return 'absolute'; }
+    st.retries++;
+  }
+}
+// A frame that filled its parent keeps filling it.
+function alKeepFill(f, sizing, W, H) {
+  if (!sizing) return;
+  ['Horizontal', 'Vertical'].forEach(function (ax, i) {
+    if (sizing[i] !== 'FILL') return;
+    var k = 'layoutSizing' + ax;
+    try { if (f[k] === 'FILL') return; f[k] = 'FILL'; if (Math.abs(f.width - W) > 0.01 || Math.abs(f.height - H) > 0.01) { f[k] = 'FIXED'; f.resize(W, H); } } catch (e) { /* parent has no auto layout yet */ }
+  });
+}
+// Make sizes flexible where that changes nothing now: height hugs the content, full-width children fill.
+function alFlex(f, st) {
+  if (!alIsAuto(f)) return;
+  var kids = f.children.filter(function (c) { return c.visible && c.layoutPositioning !== 'ABSOLUTE'; });
+  if (!kids.length) return;
+  var W = f.width, H = f.height;
+  var snap = f.children.map(function (c) { return { c: c, x: c.x, y: c.y, w: c.width, h: c.height }; });
+  var moved = function () { return Math.abs(f.width - W) > 0.02 || Math.abs(f.height - H) > 0.02 || snap.some(function (o) { return Math.abs(o.c.x - o.x) > 0.02 || Math.abs(o.c.y - o.y) > 0.02 || Math.abs(o.c.width - o.w) > 0.02 || Math.abs(o.c.height - o.h) > 0.02; }); };
+  var restore = function () { snap.forEach(function (o) { if (o.c.layoutPositioning === 'ABSOLUTE') { o.c.x = o.x; o.c.y = o.y; } }); };
+  try {
+    if (f.layoutSizingVertical === 'FIXED' && !(f.layoutPositioning === 'ABSOLUTE' && f.constraints && f.constraints.vertical === 'STRETCH')) {
+      f.layoutSizingVertical = 'HUG';
+      if (moved()) { f.layoutSizingVertical = 'FIXED'; f.resize(W, H); restore(); } else st.hug++;
+    }
+  } catch (e) { /* not allowed here */ }
+  if (f.layoutMode === 'VERTICAL' && f.layoutSizingHorizontal !== 'HUG') {
+    var inner = W - f.paddingLeft - f.paddingRight;
+    kids.forEach(function (c) {
+      if (!alIsAuto(c) || c.layoutSizingHorizontal === 'FILL' || Math.abs(c.width - inner) > 0.02) return;
+      var was = c.layoutSizingHorizontal, w = c.width, h = c.height;
+      try { c.layoutSizingHorizontal = 'FILL'; if (moved()) { c.layoutSizingHorizontal = was; if (was === 'FIXED') c.resize(w, h); } else st.fill++; } catch (e) { /* not allowed here */ }
+    });
+  }
+}
+function alPage(root, opt) {
+  var st = { frames: 0, flow: 0, absolute: 0, drawings: 0, newAbs: 0, hug: 0, fill: 0, wrappers: [], fallbacks: [], errors: [], retries: 0, grown: 0, trace: opt && opt.trace ? [] : null, worst: 0, moved: 0 };
+  var list = [], base = [], T = {};
+  var o = root.absoluteBoundingBox;
+  var walk = function (n) {
+    var b = n.absoluteBoundingBox;
+    if (n !== root) T[n.id] = alTarget(n);
+    if (b && n !== root) base.push({ n: n, x: b.x - o.x, y: b.y - o.y, w: b.width, h: b.height });
+    if (n.type === 'INSTANCE' || !('children' in n)) return;
+    n.children.forEach(walk);
+    if (n.type === 'FRAME') list.push(n); // children first
+  };
+  walk(root);
+  list.forEach(function (f) { if (f !== root) alGrow(f, T); }); // children first
+  base.forEach(function (b) { b.grown = T[b.n.id] && T[b.n.id].grown; });
+  // No pauses in this loop: every pause makes Figma redraw the page, which costs far more than the work itself.
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].removed) continue;
+    st.frames++;
+    var r = alConvert(list[i], st, T);
+    if (r === 'flow') st.flow++; else if (r === 'absolute') st.absolute++;
+  }
+  if (!opt || opt.flex !== false) {
+    var all = root.findAllWithCriteria({ types: ['FRAME'] }).reverse(); all.push(root);
+    var rw = root.width, rh = root.height;
+    for (i = 0; i < all.length; i++) { if (!all[i].removed) alFlex(all[i], st); }
+    if (Math.abs(root.height - rh) > 0.5 || Math.abs(root.width - rw) > 0.5) { try { root.layoutSizingVertical = 'FIXED'; root.resize(rw, rh); } catch (e) { /* keep */ } }
+  }
+  var o2 = root.absoluteBoundingBox; st.movedList = [];
+  base.forEach(function (b) {
+    if (b.n.removed) { st.errors.push('removed'); return; }
+    var a = b.n.absoluteBoundingBox; if (!a) return;
+    if (b.grown) { st.grown++; return; } // invisible wrapper, resized on purpose
+    var d = alOff({ x: a.x - o2.x, y: a.y - o2.y, w: a.width, h: a.height }, b);
+    st.worst = Math.max(st.worst, d); if (d > 1) { st.moved++; if (st.movedList.length < 8) st.movedList.push([b.n.name, b.n.type, Math.round(d * 10) / 10]); }
+  });
+  st.wrappers = st.wrappers.length;
+  return st;
+}
+// ---- END fiGapture auto layout ----
+
+// Apply the fixes to the pasted layers of one or more captured pages (message FIGAPTURE_LAYERS_FIX).
+async function fsFixLayers(sec, msg, reply) {
+  if (msg.manual) {
+    // Layers pasted by hand land as a new top-level frame next to the Section: move them in first.
+    var arrived = fsNewTopLevel(sec);
+    if (!arrived.length && !sec.children.length) { reply({ ok: false, error: 'No pasted layers found yet. Press Cmd+V first, then try again.' }); return; }
+    fsFit(sec, msg.name);
+    delete fsLayersBefore[sec.id];
+  }
+  var frames = sec.children.filter(function (n) { return n.type === 'FRAME' || n.type === 'COMPONENT' || n.type === 'INSTANCE'; });
+  var used = {}, results = [];
+  for (var i = 0; i < (msg.pages || []).length; i++) {
+    var pg = msg.pages[i], fr = fgPickFrame(frames, used, pg, i);
+    if (!fr) { results.push({ name: pg.name, error: 'pasted frame not found' }); continue; }
+    used[fr.id] = 1;
+    var one;
+    try { one = await fgFixPage(fr, pg, msg.options || {}); } catch (e) { one = { name: pg.name, error: String(e && e.message || e) }; }
+    // Last step: auto layout everywhere, every layer staying where it is now.
+    try { var al = alPage(fr); one.auto = { frames: al.flow, pinned: al.newAbs, moved: al.moved, worst: al.worst }; }
+    catch (e) { one.autoError = String(e && e.message || e); }
+    results.push(one);
+    figma.ui.postMessage({ type: 'FIGAPTURE_FIX_PROGRESS', done: i + 1, total: msg.pages.length });
+  }
+  // Layers pasted by hand: now move them into their websites' Sections.
+  var ses = msg.manual ? fsSessions[sec.id] : null;
+  if (ses) {
+    delete fsSessions[sec.id];
+    try { fsDistribute(sec, ses); var root = fsArrange(ses); if (root) { figma.currentPage.selection = []; figma.viewport.scrollAndZoomIntoView([root]); } }
+    catch (e) { results.push({ name: 'grouping', error: 'Grouping into Sections failed: ' + String(e && e.message || e) }); }
+  }
+  reply({ ok: true, results: results });
 }
 
 var fsCreated = [];
 async function fiGaptureBuild(msg) {
   fsCreated = [];
-  var stats = { pages: 0, designs: 0, variables: 0, textStyles: 0, effectStyles: 0, components: 0 };
+  var stats = { pages: 0, designs: 0, components: 0 };
   try {
     await Promise.all(['Regular', 'Medium', 'Semi Bold', 'Bold'].map(function (s) { return figma.loadFontAsync({ family: 'Inter', style: s }); }));
     var page = figma.currentPage;
@@ -8396,15 +9407,19 @@ async function fiGaptureBuild(msg) {
       page.children.forEach(function (n) { maxR = Math.max(maxR, n.x + n.width); minY = Math.min(minY, n.y); });
       x0 = maxR + 400; y0 = minY;
     }
-    var made = pasted ? [pasted] : [], rowY = y0, layerSection = null;
+    var rowY = y0, layerSection = null;
+    var session = {
+      page: page, name: msg.sessionName || 'fiGapture session', pages: msg.layerPages || [], master: null,
+      sites: msg.sites.map(function (st) { return { host: st.host, layers: null, parts: [], sec: null }; })
+    };
     if (msg.hasLayers && !pasted) {
       layerSection = figma.createSection(); fsCreated.push(layerSection);
       layerSection.name = 'Figma layers — paste here with Cmd+V';
       layerSection.x = x0; layerSection.y = rowY;
       layerSection.resizeWithoutConstraints(1600, 1200);
-      made.push(layerSection);
-      x0 += 1600 + 200; // same row, to the left of the screenshots
+      x0 += 1600 + 200; // same row, to the left of the rest
     }
+    session.x = pasted ? pasted.x : x0; session.y = y0;
     // Progress for the panel's loader: one step per page section and per design system.
     var stepTotal = 0, stepDone = 0;
     msg.sites.forEach(function (st) { st.pages.forEach(function (pg) { if (pg.slices && pg.slices.length) stepTotal++; }); if (st.design) stepTotal++; });
@@ -8416,20 +9431,39 @@ async function fiGaptureBuild(msg) {
         if (!p.slices || !p.slices.length) continue;
         step('Placing screenshots — ' + site.host + (p.path || ''));
         var sec = await fsBuildPage(site.host, p, cx, rowY);
-        made.push(sec); stats.pages++; stepDone++;
+        session.sites[si].parts.push(sec); stats.pages++; stepDone++;
         cx += sec.width + 200; rowH = Math.max(rowH, sec.height);
       }
       if (site.design) {
         step('Building the design system — ' + site.host);
         var dsec = await fsBuildDesign(site.host, site.design, site.designPages || [], cx, rowY, stats);
-        made.push(dsec); stats.designs++; stepDone++;
+        session.sites[si].parts.push(dsec); stats.designs++; stepDone++;
         rowH = Math.max(rowH, dsec.height);
       }
       rowY += rowH + 300;
     }
-    if (made.length) figma.viewport.scrollAndZoomIntoView(made);
-    if (layerSection) figma.currentPage.selection = [layerSection];
-    figma.ui.postMessage({ type: 'FIGAPTURE_BUILD_RESULT', ok: true, stats: stats, selectedLayers: !!layerSection });
+    // Everything is built: from here on a problem must never delete it (or the pasted layers).
+    fsCreated = [];
+    var root = null, groupError = '';
+    try {
+      if (pasted) {
+        // Empty spacer frames can appear on the page after the paste was collected.
+        if (fsLayersBefore[pasted.id]) fsNewTopLevel(pasted).forEach(function (n) { if (!fsDropSpacer(n) && session.pages.some(function (pg) { return pg.name === n.name; })) pasted.appendChild(n); });
+        delete fsLayersBefore[pasted.id];
+        fsDistribute(pasted, session);
+      }
+      root = fsArrange(session);
+    } catch (e) { groupError = String(e && e.message || e); }
+    var show = [root, layerSection].filter(Boolean);
+    if (show.length) figma.viewport.scrollAndZoomIntoView(show);
+    if (layerSection) {
+      // Remember what is already on the page, so layers pasted by hand later can be found (and fixed) afterwards.
+      var seen = {}; page.children.forEach(function (n) { seen[n.id] = 1; });
+      fsLayersBefore[layerSection.id] = seen;
+      fsSessions[layerSection.id] = session;
+      figma.currentPage.selection = [layerSection];
+    }
+    figma.ui.postMessage({ type: 'FIGAPTURE_BUILD_RESULT', ok: true, stats: stats, groupError: groupError, selectedLayers: !!layerSection, layerSectionId: layerSection ? layerSection.id : null });
   } catch (e) {
     // Undo a half-finished build so no empty Sections or stray styles are left behind.
     fsCreated.forEach(function (n) { try { n.remove(); } catch (err) { /* already gone */ } });
