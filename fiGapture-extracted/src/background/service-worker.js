@@ -332,6 +332,8 @@ async function cdpSlices(tabId) {
   const evalJs = (expression) => send("Runtime.evaluate", { expression, returnByValue: true });
   const ids = JSON.stringify([TOOLBAR_HOST_ID, "__fiGapture_toast__"]);
   await evalJs(`(()=>{for(const id of ${ids}){const n=document.getElementById(id);if(n){n.__fsv=n.style.visibility;n.style.setProperty("visibility","hidden","important")}}})()`);
+  let __fgHeld = false;
+  try { __fgHeld = true; await evalJs("(()=>{const h=document.documentElement,b=document.body;const c=+h.getAttribute(\"data-fg-lock\")||0;if(c>0){h.setAttribute(\"data-fg-lock\",String(c+1));return true}const dh=Math.max(h.scrollHeight,b?b.scrollHeight:0);const orig=[];[h,b].forEach((el,i)=>{if(!el)return;const cs=getComputedStyle(el),hh=el.getBoundingClientRect().height;if(dh>innerHeight+10&&hh<=innerHeight+2&&/^(hidden|auto|scroll|clip)$/.test(cs.overflowY)){[\"height\",\"max-height\",\"overflow\",\"overflow-y\"].forEach(k=>orig.push([i,k,el.style.getPropertyValue(k),el.style.getPropertyPriority(k)]));el.style.setProperty(\"height\",\"auto\",\"important\");el.style.setProperty(\"max-height\",\"none\",\"important\");el.style.setProperty(\"overflow\",\"visible\",\"important\")}});h.setAttribute(\"data-fg-lock\",\"1\");h.setAttribute(\"data-fg-orig\",JSON.stringify(orig));return orig.length>0})()"); } catch (err) {}
   try {
     // Page size in CSS pixels, measured inside the page (layout metrics can report device pixels).
     const m = ((await evalJs("({w:Math.max(document.documentElement.scrollWidth,document.body?document.body.scrollWidth:0),h:Math.max(document.documentElement.scrollHeight,document.body?document.body.scrollHeight:0),dpr:window.devicePixelRatio||1})")).result || {}).value || {};
@@ -379,6 +381,7 @@ async function cdpSlices(tabId) {
     const dpr = slices[0].width / width;
     return { slices, width, height, dpr };
   } finally {
+    if (__fgHeld) await evalJs("(()=>{const h=document.documentElement;const c=(+h.getAttribute(\"data-fg-lock\")||0)-1;if(c>0){h.setAttribute(\"data-fg-lock\",String(c));return}const orig=JSON.parse(h.getAttribute(\"data-fg-orig\")||\"[]\");const els=[h,document.body];for(const[i,k,v,p]of orig){const el=els[i];if(!el)continue;v?el.style.setProperty(k,v,p):el.style.removeProperty(k)}h.removeAttribute(\"data-fg-lock\");h.removeAttribute(\"data-fg-orig\")})()").catch(() => {});
     await evalJs(`(()=>{for(const id of ${ids}){const n=document.getElementById(id);if(n){n.style.visibility=n.__fsv||"";}}})()`).catch(() => {});
   }
 }
